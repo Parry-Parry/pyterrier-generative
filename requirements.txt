@@ -1,0 +1,4 @@
+pyterrier
+pyterrier-rag
+transformers
+vllm

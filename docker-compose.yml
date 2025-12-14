@@ -1,0 +1,80 @@
+version: '3.8'
+
+services:
+  # Basic test runner
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/app
+    command: pytest -v --cov=pyterrier_generative --cov-report=term-missing -m "not integration"
+
+  # Run all tests including integration
+  test-all:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/app
+    command: pytest -v --cov=pyterrier_generative --cov-report=html --cov-report=term-missing
+
+  # Run specific test file
+  test-algorithms:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/app
+    command: pytest -v tests/test_algorithms.py
+
+  test-base:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/app
+    command: pytest -v tests/test_base_ranker.py
+
+  test-standard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/app
+    command: pytest -v tests/test_standard_ranker.py
+
+  test-lit5:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/app
+    command: pytest -v tests/test_lit5.py
+
+  test-variants:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/app
+    command: pytest -v tests/test_variants.py
+
+  test-integration:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/app
+    command: pytest -v tests/test_integration.py
+
+  # Interactive shell for debugging
+  shell:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/app
+    command: /bin/bash
+    stdin_open: true
+    tty: true
