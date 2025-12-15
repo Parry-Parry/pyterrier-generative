@@ -5,21 +5,16 @@
 [![PyTerrier](https://img.shields.io/badge/PyTerrier-Compatible-orange)](https://github.com/terrier-org/pyterrier)
 
 Generative **listwise ranking** with [PyTerrier](https://github.com/terrier-org/pyterrier).
-PyTerrier Generative brings large language models to information retrieval through unified ranking algorithms and efficient batching.
+PyTerrier Generative supports the use of generative rankers and list-wise algorithms.
 
 ## 📘 Overview
 
 **PyTerrier Generative** provides:
 - **Pre-configured rankers**: RankZephyr, RankVicuna, RankGPT, LiT5.
 - **Flexible algorithms**: Sliding window, single window, top-down partitioning, setwise.
-- **Efficient batching**: Automatic batching of ranking windows for 6-8x speedup.
+- **Efficient batching**: Automatic batching of ranking windows.
 - **Customizable prompts**: Jinja2 templates or Python callables.
 - **Multiple backends**: vLLM, HuggingFace Transformers, OpenAI.
-
-Workflow:
-1) Choose a ranker (e.g., `RankZephyr()`) or create a custom `GenerativeRanker`.
-2) Integrate into your PyTerrier pipeline.
-3) Rank documents using LLM-based listwise scoring.
 
 ## 🚀 Getting Started
 
@@ -40,16 +35,13 @@ pip install -e .
 import pyterrier as pt
 from pyterrier_generative import RankZephyr
 
-# Initialize PyTerrier
 pt.init()
 
 # Create ranker
-ranker = RankZephyr(window_size=20)
+ranker = RankZephyr.v1(window_size=20)
 
 # Use in pipeline
 pipeline = pt.BatchRetrieve(index) % 100 >> ranker
-
-# Search
 results = pipeline.search("machine learning")
 ```
 
@@ -59,37 +51,39 @@ results = pipeline.search("machine learning")
 ```python
 from pyterrier_generative import RankZephyr
 
+# Use default variant
+ranker = RankZephyr(window_size=20)
+
+# Or specify algorithm and parameters
 ranker = RankZephyr(
     algorithm=Algorithm.SLIDING_WINDOW,
     window_size=20,
     stride=10
 )
 ```
-**Model**: `castorini/rank_zephyr_7b_v1_full`
-**Backend**: vLLM (default)
+**Variants**: `v1` → `castorini/rank_zephyr_7b_v1_full`
+**Backend**: vLLM (default), HuggingFace
 
 ### RankVicuna
 ```python
 from pyterrier_generative import RankVicuna
 
-ranker = RankVicuna(
-    algorithm=Algorithm.SLIDING_WINDOW,
-    window_size=20
-)
+ranker = RankVicuna(window_size=20)
 ```
-**Model**: `castorini/rank_vicuna_7b_v1`
-**Backend**: vLLM (default)
+**Variants**: `v1` → `castorini/rank_vicuna_7b_v1`
+**Backend**: vLLM (default), HuggingFace
 
 ### RankGPT
 ```python
 from pyterrier_generative import RankGPT
 
-ranker = RankGPT(
-    api_key="your-openai-key",
-    algorithm=Algorithm.SLIDING_WINDOW
-)
+# Use GPT-3.5 (default)
+ranker = RankGPT.gpt35(api_key="sk-...")
+
+# Or GPT-4
+ranker = RankGPT.gpt4(api_key="sk-...")
 ```
-**Model**: `gpt-3.5-turbo`
+**Variants**: `gpt35`, `gpt35_16k`, `gpt4`, `gpt4_turbo`
 **Backend**: OpenAI
 
 ### LiT5
@@ -106,7 +100,7 @@ ranker = LiT5(
 
 ## ⚙️ Custom Rankers
 
-Build your own ranker with custom prompts and backends:
+Build your own ranker with custom prompts and backends, you can find more details on backends in PyTerrier RAG:
 
 ```python
 from pyterrier_generative import GenerativeRanker, Algorithm
@@ -139,21 +133,7 @@ ranker = GenerativeRanker(
 )
 ```
 
-### Callable Prompts
-```python
-def custom_prompt(query, passages, num):
-    lines = [f"Query: {query}", f"Documents ({num}):"]
-    for i, passage in enumerate(passages, 1):
-        lines.append(f"[{i}] {passage[:200]}...")
-    lines.append("Provide ranking:")
-    return "\n".join(lines)
 
-ranker = GenerativeRanker(
-    model=backend,
-    prompt=custom_prompt,
-    algorithm=Algorithm.SLIDING_WINDOW
-)
-```
 
 ## 🔄 Ranking Algorithms
 
@@ -223,85 +203,49 @@ ranker = RankZephyr(backend='hf')
 
 **OpenAI** (no local GPU needed):
 ```python
-ranker = RankGPT(api_key="...")
+ranker = RankGPT.gpt35(api_key="...")
 ```
 
-## 🔌 Integration with PyTerrier
+## 🔌 PyTerrier Integration
 
-### Basic Pipeline
+### Basic Re-ranking
 ```python
 import pyterrier as pt
 from pyterrier_generative import RankZephyr
 
-# First-stage retrieval
-bm25 = pt.BatchRetrieve(index, wmodel="BM25")
-
-# Re-rank top 100 with RankZephyr
+bm25 = pt.BatchRetrieve(index)
 ranker = RankZephyr(window_size=20)
 
 pipeline = bm25 % 100 >> ranker
-
 results = pipeline.search("information retrieval")
 ```
 
 ### Multi-stage Pipeline
 ```python
-from pyterrier_dr import ElectraScorer
-from pyterrier_generative import RankZephyr
+from pyterrier_generative import RankGPT
 
-# Stage 1: BM25 retrieval (top 1000)
-bm25 = pt.BatchRetrieve(index) % 1000
-
-# Stage 2: Dense re-ranking (top 100)
-dense = ElectraScorer()
-
-# Stage 3: Generative re-ranking (final 20)
-generative = RankZephyr(window_size=20)
-
-pipeline = bm25 >> dense % 100 >> generative
-
-results = pipeline.search("neural networks")
+# Three-stage ranking: BM25 → Dense → Generative
+pipeline = (
+    bm25 % 1000
+    >> dense_ranker % 100
+    >> RankGPT.gpt35(api_key="...")
+)
 ```
 
-### Experiment
+### Comparative Evaluation
 ```python
-from pyterrier_generative import RankZephyr, RankVicuna, LiT5
+from pyterrier_generative import RankZephyr, RankVicuna
 
 rankers = {
     "BM25": bm25,
     "BM25 >> RankZephyr": bm25 % 100 >> RankZephyr(),
     "BM25 >> RankVicuna": bm25 % 100 >> RankVicuna(),
-    "BM25 >> LiT5": bm25 % 100 >> LiT5(),
 }
 
-results = pt.Experiment(
-    rankers,
-    dataset.get_topics(),
-    dataset.get_qrels(),
-    eval_metrics=["map", "ndcg_cut_10", "recip_rank"]
-)
+pt.Experiment(rankers, topics, qrels, eval_metrics=["map", "ndcg_cut_10"])
 ```
 
 ## 🎨 Advanced Features
-
-### StandardRanker Variants
-Access multiple model sizes through the variant system:
-
-```python
-from pyterrier_generative import StandardRanker
-
-# All GPT variants
-ranker_35 = StandardRanker.RankGPT35(api_key="...")
-ranker_4 = StandardRanker.RankGPT4(api_key="...")
-ranker_4_turbo = StandardRanker.RankGPT4Turbo(api_key="...")
-
-# Access any variant programmatically
-ranker = StandardRanker(
-    model_id='gpt-4',
-    backend='openai',
-    api_key="..."
-)
-```
 
 ### System Prompts (for chat models)
 ```python
@@ -355,19 +299,6 @@ Window 3: [D21...D40] → Rank → [D25, D22, D28, ...]
 Final: Merge rankings → [D5, D15, D25, D2, ...]
 ```
 
-### Batching
-Multiple windows are processed in parallel:
-
-```
-Traditional:
-  Window1 → Model → Output1
-  Window2 → Model → Output2
-  Window3 → Model → Output3
-
-Batched (6-8x faster):
-  [Window1, Window2, Window3] → Model → [Output1, Output2, Output3]
-```
-
 ## 🔬 Research
 
 If you use PyTerrier Generative in your research, please cite:
@@ -380,10 +311,6 @@ If you use PyTerrier Generative in your research, please cite:
   url = {https://github.com/Parry-Parry/pyterrier-generative}
 }
 ```
-Related work:
-- RankGPT: [Is ChatGPT Good at Search?](https://arxiv.org/abs/2304.09542)
-- RankZephyr: [Rank-without-GPT](https://arxiv.org/abs/2312.03648)
-- LiT5: [Listwise Reranker for Multi-Stage IR](https://arxiv.org/abs/2110.09416)
 
 ## 👥 Authors
 
@@ -398,8 +325,6 @@ Contributions welcome! Please:
 3. Add tests for new features
 4. Ensure all tests pass (`pytest`)
 5. Submit a pull request
-
-See [tests/README.md](tests/README.md) for testing guidelines.
 
 ## 🧾 Version History
 
