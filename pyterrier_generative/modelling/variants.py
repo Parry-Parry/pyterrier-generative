@@ -9,60 +9,18 @@ from pyterrier_generative.prompts import RANKPROMPT
 from pyterrier_generative.modelling.util import Variants
 
 
-class StandardRanker(GenerativeRanker, metaclass=Variants):
+class _StandardRanker(GenerativeRanker, metaclass=Variants):
     """
-    Standard pre-configured rankers with multiple model variants.
+    Base class for standard pre-configured rankers with variants.
 
-    This class provides easy access to common ranking models through
-    class attributes that act as factory methods.
-
-    Available Models:
-
-    - **RankZephyr**: ``castorini/rank_zephyr_7b_v1_full`` (vLLM)
-    - **RankVicuna**: ``castorini/rank_vicuna_7b_v1`` (vLLM)
-    - **RankGPT4**: ``gpt-4`` (OpenAI)
-    - **RankGPT4Turbo**: ``gpt-4-turbo-preview`` (OpenAI)
-    - **RankGPT35**: ``gpt-3.5-turbo`` (OpenAI)
-    - **RankGPT35_16k**: ``gpt-3.5-turbo-16k`` (OpenAI)
-
-    Example::
-
-        from pyterrier_generative import StandardRanker
-        import pyterrier as pt
-
-        # Use RankZephyr
-        ranker = StandardRanker.RankZephyr()
-
-        # Use RankGPT with GPT-4
-        ranker = StandardRanker.RankGPT4(window_size=10)
-
-        # Use RankVicuna with custom parameters
-        ranker = StandardRanker.RankVicuna(stride=5, backend='hf')
-
-        # In a pipeline
-        pipeline = bm25 % 20 >> StandardRanker.RankZephyr()
-        results = pipeline.search("What is information retrieval?")
-
-    .. automethod:: RankZephyr()
-    .. automethod:: RankVicuna()
-    .. automethod:: RankGPT4()
-    .. automethod:: RankGPT4Turbo()
-    .. automethod:: RankGPT35()
-    .. automethod:: RankGPT35_16k()
+    Subclasses should define a VARIANTS dict mapping variant names to model IDs.
     """
 
-    VARIANTS = {
-        'RankZephyr': 'castorini/rank_zephyr_7b_v1_full',
-        'RankVicuna': 'castorini/rank_vicuna_7b_v1',
-        'RankGPT4': 'gpt-4',
-        'RankGPT4Turbo': 'gpt-4-turbo-preview',
-        'RankGPT35': 'gpt-3.5-turbo',
-        'RankGPT35_16k': 'gpt-3.5-turbo-16k',
-    }
+    VARIANTS = None  # To be defined by subclasses
 
     def __init__(
         self,
-        model_id: str,
+        model_id: Optional[str] = None,
         *,
         prompt: Union[str, callable] = RANKPROMPT,
         system_prompt: str = "",
@@ -82,6 +40,14 @@ class StandardRanker(GenerativeRanker, metaclass=Variants):
         verbose: bool = False,
     ):
         """Initialize StandardRanker with the specified model."""
+
+        # Use first variant as default if no model_id provided
+        if model_id is None:
+            if not self.VARIANTS:
+                raise ValueError("model_id is required when no VARIANTS are defined")
+            model_id = next(iter(self.VARIANTS.values()))
+
+        self.model_id = model_id
 
         # Auto-detect backend based on model_id if not specified
         if backend is None:
@@ -140,17 +106,16 @@ class StandardRanker(GenerativeRanker, metaclass=Variants):
             max_iters=max_iters,
         )
 
-        self.model_id = model_id
         self.backend_type = backend
 
     def __repr__(self):
         # Check if this is a known variant
         inv_variants = {v: k for k, v in self.VARIANTS.items()}
         if self.model_id in inv_variants:
-            return f'StandardRanker.{inv_variants[self.model_id]}()'
+            return f'{self.__class__.__name__}.{inv_variants[self.model_id]}()'
 
         return (
-            f"StandardRanker("
+            f"{self.__class__.__name__}("
             f"model_id={self.model_id!r}, "
             f"backend={self.backend_type!r}, "
             f"algorithm={self.algorithm.value!r}, "
@@ -158,15 +123,87 @@ class StandardRanker(GenerativeRanker, metaclass=Variants):
         )
 
 
-# Create convenient aliases at module level
-RankZephyr = lambda **kwargs: StandardRanker(StandardRanker.VARIANTS['RankZephyr'], **kwargs)
-RankVicuna = lambda **kwargs: StandardRanker(StandardRanker.VARIANTS['RankVicuna'], **kwargs)
-RankGPT = lambda **kwargs: StandardRanker(StandardRanker.VARIANTS['RankGPT35'], **kwargs)
+class RankGPT(_StandardRanker):
+    """
+    RankGPT ranker using OpenAI's GPT models.
 
-# Set docstrings for the aliases
-RankZephyr.__doc__ = """Alias for StandardRanker.RankZephyr(). Model: ``castorini/rank_zephyr_7b_v1_full``"""
-RankVicuna.__doc__ = """Alias for StandardRanker.RankVicuna(). Model: ``castorini/rank_vicuna_7b_v1``"""
-RankGPT.__doc__ = """Alias for StandardRanker.RankGPT35(). Model: ``gpt-3.5-turbo``"""
+    Provides easy access to GPT-3.5 and GPT-4 models for ranking.
+
+    Example::
+
+        from pyterrier_generative import RankGPT
+        import pyterrier as pt
+
+        # Use default (GPT-3.5-turbo)
+        ranker = RankGPT.gpt35()
+
+        # Use GPT-4
+        ranker = RankGPT.gpt4(api_key="sk-...")
+
+        # Use with custom parameters
+        ranker = RankGPT.gpt35(window_size=10, stride=5)
+
+        # In a pipeline
+        pipeline = bm25 % 20 >> RankGPT.gpt4()
+        results = pipeline.search("What is information retrieval?")
+
+    .. automethod:: gpt35()
+    .. automethod:: gpt35_16k()
+    .. automethod:: gpt4()
+    .. automethod:: gpt4_turbo()
+    """
+
+    VARIANTS = {
+        'gpt35': 'gpt-3.5-turbo',
+        'gpt35_16k': 'gpt-3.5-turbo-16k',
+        'gpt4': 'gpt-4',
+        'gpt4_turbo': 'gpt-4-turbo-preview',
+    }
 
 
-__all__ = ['StandardRanker', 'RankZephyr', 'RankVicuna', 'RankGPT']
+class RankZephyr(_StandardRanker):
+    """
+    RankZephyr ranker using the Zephyr-7B model.
+
+    Model: ``castorini/rank_zephyr_7b_v1_full``
+
+    Example::
+
+        from pyterrier_generative import RankZephyr
+
+        # Use default variant
+        ranker = RankZephyr.v1()
+
+        # With custom backend
+        ranker = RankZephyr.v1(backend='hf')
+
+    .. automethod:: v1()
+    """
+
+    VARIANTS = {
+        'v1': 'castorini/rank_zephyr_7b_v1_full',
+    }
+
+
+class RankVicuna(_StandardRanker):
+    """
+    RankVicuna ranker using the Vicuna-7B model.
+
+    Model: ``castorini/rank_vicuna_7b_v1``
+
+    Example::
+
+        from pyterrier_generative import RankVicuna
+
+        # Use default variant
+        ranker = RankVicuna.v1()
+
+    .. automethod:: v1()
+    """
+
+    VARIANTS = {
+        'v1': 'castorini/rank_vicuna_7b_v1',
+    }
+
+
+__all__ = ['RankGPT', 'RankZephyr', 'RankVicuna']

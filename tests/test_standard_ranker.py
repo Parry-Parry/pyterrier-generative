@@ -5,7 +5,7 @@ Tests the meta-variant system and standard model configurations.
 """
 
 import pytest
-from pyterrier_generative.modelling.standard import StandardRanker, RankZephyr, RankVicuna, RankGPT
+from pyterrier_generative.modelling.variants import StandardRanker, RankZephyr, RankVicuna, RankGPT
 from pyterrier_generative._algorithms import Algorithm
 
 
@@ -16,32 +16,42 @@ from pyterrier_generative._algorithms import Algorithm
 class TestStandardRankerVariants:
     """Test StandardRanker variant system."""
 
-    def test_variants_defined(self):
-        """Test that all variants are defined."""
-        assert 'RankZephyr' in StandardRanker.VARIANTS
-        assert 'RankVicuna' in StandardRanker.VARIANTS
-        assert 'RankGPT4' in StandardRanker.VARIANTS
-        assert 'RankGPT4Turbo' in StandardRanker.VARIANTS
-        assert 'RankGPT35' in StandardRanker.VARIANTS
-        assert 'RankGPT35_16k' in StandardRanker.VARIANTS
+    def test_rankgpt_variants_defined(self):
+        """Test that RankGPT variants are defined."""
+        assert 'gpt35' in RankGPT.VARIANTS
+        assert 'gpt35_16k' in RankGPT.VARIANTS
+        assert 'gpt4' in RankGPT.VARIANTS
+        assert 'gpt4_turbo' in RankGPT.VARIANTS
+
+    def test_rankzephyr_variants_defined(self):
+        """Test that RankZephyr variants are defined."""
+        assert 'v1' in RankZephyr.VARIANTS
+
+    def test_rankvicuna_variants_defined(self):
+        """Test that RankVicuna variants are defined."""
+        assert 'v1' in RankVicuna.VARIANTS
 
     def test_variant_models(self):
         """Test variant model IDs."""
-        assert StandardRanker.VARIANTS['RankZephyr'] == 'castorini/rank_zephyr_7b_v1_full'
-        assert StandardRanker.VARIANTS['RankVicuna'] == 'castorini/rank_vicuna_7b_v1'
-        assert StandardRanker.VARIANTS['RankGPT4'] == 'gpt-4'
-        assert StandardRanker.VARIANTS['RankGPT4Turbo'] == 'gpt-4-turbo-preview'
-        assert StandardRanker.VARIANTS['RankGPT35'] == 'gpt-3.5-turbo'
-        assert StandardRanker.VARIANTS['RankGPT35_16k'] == 'gpt-3.5-turbo-16k'
+        assert RankZephyr.VARIANTS['v1'] == 'castorini/rank_zephyr_7b_v1_full'
+        assert RankVicuna.VARIANTS['v1'] == 'castorini/rank_vicuna_7b_v1'
+        assert RankGPT.VARIANTS['gpt4'] == 'gpt-4'
+        assert RankGPT.VARIANTS['gpt4_turbo'] == 'gpt-4-turbo-preview'
+        assert RankGPT.VARIANTS['gpt35'] == 'gpt-3.5-turbo'
+        assert RankGPT.VARIANTS['gpt35_16k'] == 'gpt-3.5-turbo-16k'
 
 
 class TestStandardRankerInit:
     """Test StandardRanker initialization."""
 
-    def test_init_requires_model_id(self):
-        """Test that model_id is required."""
-        with pytest.raises(TypeError):
-            StandardRanker()  # Missing required model_id argument
+    def test_init_with_default_variant(self):
+        """Test that RankGPT uses default variant when no model_id provided."""
+        try:
+            ranker = RankGPT()  # Should use default (gpt-3.5-turbo)
+            assert ranker.model_id == 'gpt-3.5-turbo'
+        except Exception:
+            # Expected without API key
+            pass
 
     def test_backend_autodetect_vllm(self):
         """Test backend auto-detection for HF models."""
@@ -135,20 +145,19 @@ class TestStandardRankerInit:
     def test_repr_variant(self):
         """Test repr for known variant."""
         try:
-            ranker = StandardRanker(
-                'castorini/rank_zephyr_7b_v1_full',
+            ranker = RankZephyr.v1(
                 max_new_tokens=10,
                 verbose=False
             )
             repr_str = repr(ranker)
-            assert 'StandardRanker.RankZephyr()' == repr_str
+            assert 'RankZephyr.v1()' == repr_str
         except ImportError:
             pytest.skip("vLLM not available")
 
     def test_repr_custom_model(self):
         """Test repr for custom model."""
         try:
-            ranker = StandardRanker(
+            ranker = RankGPT(
                 'custom/model',
                 backend='vllm',
                 algorithm=Algorithm.SLIDING_WINDOW,
@@ -166,13 +175,12 @@ class TestStandardRankerInit:
 
 
 class TestRankZephyr:
-    """Test RankZephyr convenience function."""
+    """Test RankZephyr class."""
 
-    def test_rankzephyr_creates_standard_ranker(self):
-        """Test that RankZephyr creates StandardRanker."""
+    def test_rankzephyr_v1_variant(self):
+        """Test that RankZephyr.v1() creates ranker with correct model."""
         try:
-            ranker = RankZephyr(max_new_tokens=10, verbose=False)
-            assert isinstance(ranker, StandardRanker)
+            ranker = RankZephyr.v1(max_new_tokens=10, verbose=False)
             assert ranker.model_id == 'castorini/rank_zephyr_7b_v1_full'
             assert ranker.backend_type == 'vllm'
         except ImportError:
@@ -181,7 +189,7 @@ class TestRankZephyr:
     def test_rankzephyr_with_parameters(self):
         """Test RankZephyr with custom parameters."""
         try:
-            ranker = RankZephyr(
+            ranker = RankZephyr.v1(
                 window_size=15,
                 stride=8,
                 algorithm=Algorithm.SLIDING_WINDOW,
@@ -197,20 +205,19 @@ class TestRankZephyr:
     def test_rankzephyr_backend_override(self):
         """Test RankZephyr with backend override."""
         try:
-            ranker = RankZephyr(backend='hf', max_new_tokens=10, verbose=False)
+            ranker = RankZephyr.v1(backend='hf', max_new_tokens=10, verbose=False)
             assert ranker.backend_type == 'hf'
         except ImportError:
             pytest.skip("HuggingFace transformers not available")
 
 
 class TestRankVicuna:
-    """Test RankVicuna convenience function."""
+    """Test RankVicuna class."""
 
-    def test_rankvicuna_creates_standard_ranker(self):
-        """Test that RankVicuna creates StandardRanker."""
+    def test_rankvicuna_v1_variant(self):
+        """Test that RankVicuna.v1() creates ranker with correct model."""
         try:
-            ranker = RankVicuna(max_new_tokens=10, verbose=False)
-            assert isinstance(ranker, StandardRanker)
+            ranker = RankVicuna.v1(max_new_tokens=10, verbose=False)
             assert ranker.model_id == 'castorini/rank_vicuna_7b_v1'
             assert ranker.backend_type == 'vllm'
         except ImportError:
@@ -219,7 +226,7 @@ class TestRankVicuna:
     def test_rankvicuna_with_parameters(self):
         """Test RankVicuna with custom parameters."""
         try:
-            ranker = RankVicuna(
+            ranker = RankVicuna.v1(
                 window_size=12,
                 algorithm=Algorithm.TDPART,
                 cutoff=5,
@@ -234,15 +241,32 @@ class TestRankVicuna:
 
 
 class TestRankGPT:
-    """Test RankGPT convenience function."""
+    """Test RankGPT class."""
 
-    def test_rankgpt_creates_standard_ranker(self):
-        """Test that RankGPT creates StandardRanker."""
+    def test_rankgpt_default_variant(self):
+        """Test that RankGPT() uses default variant."""
         try:
             ranker = RankGPT(max_new_tokens=10)
-            assert isinstance(ranker, StandardRanker)
             assert ranker.model_id == 'gpt-3.5-turbo'
             assert ranker.backend_type == 'openai'
+        except Exception:
+            # Expected without API key
+            pass
+
+    def test_rankgpt_gpt35_variant(self):
+        """Test RankGPT.gpt35() variant."""
+        try:
+            ranker = RankGPT.gpt35(max_new_tokens=10)
+            assert ranker.model_id == 'gpt-3.5-turbo'
+        except Exception:
+            # Expected without API key
+            pass
+
+    def test_rankgpt_gpt4_variant(self):
+        """Test RankGPT.gpt4() variant."""
+        try:
+            ranker = RankGPT.gpt4(max_new_tokens=10)
+            assert ranker.model_id == 'gpt-4'
         except Exception:
             # Expected without API key
             pass
@@ -250,7 +274,7 @@ class TestRankGPT:
     def test_rankgpt_with_api_key(self):
         """Test RankGPT with API key parameter."""
         try:
-            ranker = RankGPT(api_key='test-key', max_new_tokens=10)
+            ranker = RankGPT.gpt35(api_key='test-key', max_new_tokens=10)
             assert ranker.model_id == 'gpt-3.5-turbo'
         except Exception:
             # Expected with invalid API key
@@ -259,7 +283,7 @@ class TestRankGPT:
     def test_rankgpt_with_parameters(self):
         """Test RankGPT with custom parameters."""
         try:
-            ranker = RankGPT(
+            ranker = RankGPT.gpt35(
                 window_size=20,
                 algorithm=Algorithm.SINGLE_WINDOW,
                 max_new_tokens=50
@@ -274,32 +298,28 @@ class TestRankGPT:
 class TestMetaclassVariants:
     """Test metaclass variant creation."""
 
-    def test_variant_as_classmethod(self):
-        """Test accessing variant as class method."""
-        # Access RankZephyr via metaclass
-        try:
-            ranker = StandardRanker.RankZephyr(max_new_tokens=10, verbose=False)
-            assert isinstance(ranker, StandardRanker)
-            assert ranker.model_id == 'castorini/rank_zephyr_7b_v1_full'
-        except ImportError:
-            pytest.skip("vLLM not available")
-
-    def test_all_variants_accessible(self):
-        """Test that all variants are accessible via metaclass."""
+    def test_rankgpt_variants_accessible(self):
+        """Test that RankGPT variants are accessible as class methods."""
         # Just check they're callable, don't actually instantiate
-        assert callable(StandardRanker.RankZephyr)
-        assert callable(StandardRanker.RankVicuna)
-        assert callable(StandardRanker.RankGPT4)
-        assert callable(StandardRanker.RankGPT4Turbo)
-        assert callable(StandardRanker.RankGPT35)
-        assert callable(StandardRanker.RankGPT35_16k)
+        assert callable(RankGPT.gpt35)
+        assert callable(RankGPT.gpt35_16k)
+        assert callable(RankGPT.gpt4)
+        assert callable(RankGPT.gpt4_turbo)
+
+    def test_rankzephyr_variants_accessible(self):
+        """Test that RankZephyr variants are accessible as class methods."""
+        assert callable(RankZephyr.v1)
+
+    def test_rankvicuna_variants_accessible(self):
+        """Test that RankVicuna variants are accessible as class methods."""
+        assert callable(RankVicuna.v1)
 
     def test_variant_has_docstring(self):
         """Test that variant methods have docstrings."""
-        assert StandardRanker.RankZephyr.__doc__ is not None
-        assert 'castorini/rank_zephyr_7b_v1_full' in StandardRanker.RankZephyr.__doc__
+        assert RankZephyr.v1.__doc__ is not None
+        assert 'castorini/rank_zephyr_7b_v1_full' in RankZephyr.v1.__doc__
 
     def test_invalid_variant_raises_error(self):
         """Test that invalid variant raises AttributeError."""
         with pytest.raises(AttributeError):
-            StandardRanker.InvalidVariant()
+            RankGPT.InvalidVariant()

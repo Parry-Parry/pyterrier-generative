@@ -5,7 +5,10 @@
       "Bash(dir:*)",
       "Bash(python test_batching.py:*)",
       "Bash(where:*)",
-      "Bash(uv run:*)"
+      "Bash(uv run:*)",
+      "Bash(python -m pytest:*)",
+      "Bash(docker build:*)",
+      "Bash(docker run:*)"
     ]
   }
 }

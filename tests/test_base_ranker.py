@@ -59,6 +59,41 @@ class MessageBackend(DeterministicBackend):
 
     supports_message_input = True
 
+    def generate(self, prompts):
+        """
+        Generate deterministic rankings from message format.
+
+        Handles both string prompts and message list format.
+        """
+        self.generate_calls.append(len(prompts))
+        outputs = []
+
+        for prompt in prompts:
+            # Convert messages to string if needed
+            if isinstance(prompt, list):
+                # Extract text from messages
+                text = ""
+                for msg in prompt:
+                    if isinstance(msg, dict) and 'content' in msg:
+                        text += msg['content'] + "\n"
+                prompt = text
+
+            # Count how many passages are in the prompt
+            # Look for [N] patterns
+            matches = re.findall(r'\[(\d+)\]', prompt)
+            num_passages = len(matches)
+
+            if self.reverse:
+                # Return reverse order
+                ranking = " ".join(str(i) for i in range(num_passages, 0, -1))
+            else:
+                # Return sequential order
+                ranking = " ".join(str(i) for i in range(1, num_passages + 1))
+
+            outputs.append(ranking)
+
+        return outputs
+
 
 # Fixtures
 
@@ -244,10 +279,12 @@ class TestPromptConstruction:
             passages=["doc0"]
         )
 
-        # For message-based, should return string (converted)
-        assert isinstance(prompt, str)
-        assert "System message" in prompt
-        assert "Query: test" in prompt
+        # For message-based backends, should return messages list
+        assert isinstance(prompt, list)
+        assert len(prompt) == 2
+        assert prompt[0] == {'role': 'system', 'content': 'System message'}
+        assert prompt[1]['role'] == 'user'
+        assert "Query: test" in prompt[1]['content']
 
 
 # Tests for output parsing

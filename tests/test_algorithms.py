@@ -208,18 +208,16 @@ class TestSlidingWindow:
         assert len(doc_texts) == 5
 
     def test_sliding_window_batched(self, sample_dataframe):
-        """Test batched sliding window."""
-        model = BatchedRanker(window_size=10, stride=5)
+        """Test sliding window without batching (batching moved to transform level)."""
+        # Note: Batching is now handled at the transform level, not in sliding_window directly
+        # This test verifies that sliding_window still works when called directly
+        model = SimpleRanker(window_size=10, stride=5)
         doc_idx, doc_texts = sliding_window(model, 'test query', sample_dataframe)
 
-        # Should have used batching
-        assert len(model.batch_sizes) > 0
-        # Should have processed all windows in batches
-        total_windows = sum(model.batch_sizes)
-        assert total_windows > 1  # Should have multiple windows for 30 docs
-
+        # Should have processed all documents
         assert len(doc_idx) == 30
         assert len(doc_texts) == 30
+        assert set(doc_idx) == set(sample_dataframe['docno'])
 
     def test_sliding_window_fallback(self, sample_dataframe):
         """Test fallback when batching not available."""

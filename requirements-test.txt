@@ -1,0 +1,5 @@
+# Minimal test dependencies - CPU only, no CUDA
+pyterrier
+git+https://github.com/terrierteam/pyterrier_rag.git@remove-prompt
+torch --index-url https://download.pytorch.org/whl/cpu
+transformers

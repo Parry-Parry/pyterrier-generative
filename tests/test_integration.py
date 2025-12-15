@@ -187,7 +187,7 @@ class TestBatchingIntegration:
     """Integration tests for batching functionality."""
 
     def test_batching_reduces_calls(self, simple_backend):
-        """Test that batching reduces number of backend calls."""
+        """Test that batching reduces number of backend calls across queries."""
         ranker = GenerativeRanker(
             model=simple_backend,
             prompt="Query: {{ query }}\n{% for p in passages %}[{{ loop.index }}] {{ p }}\n{% endfor %}",
@@ -196,21 +196,37 @@ class TestBatchingIntegration:
             stride=3
         )
 
-        input_df = pd.DataFrame({
+        # Create input with 3 queries, each with 15 docs
+        q1_df = pd.DataFrame({
             'qid': ['q1'] * 15,
-            'query': ['test'] * 15,
-            'docno': [f'd{i}' for i in range(15)],
-            'text': [f'doc {i}' for i in range(15)],
+            'query': ['test query 1'] * 15,
+            'docno': [f'q1_d{i}' for i in range(15)],
+            'text': [f'q1 doc {i}' for i in range(15)],
             'score': list(range(15, 0, -1))
         })
+        q2_df = pd.DataFrame({
+            'qid': ['q2'] * 15,
+            'query': ['test query 2'] * 15,
+            'docno': [f'q2_d{i}' for i in range(15)],
+            'text': [f'q2 doc {i}' for i in range(15)],
+            'score': list(range(15, 0, -1))
+        })
+        q3_df = pd.DataFrame({
+            'qid': ['q3'] * 15,
+            'query': ['test query 3'] * 15,
+            'docno': [f'q3_d{i}' for i in range(15)],
+            'text': [f'q3 doc {i}' for i in range(15)],
+            'score': list(range(15, 0, -1))
+        })
+        input_df = pd.concat([q1_df, q2_df, q3_df], ignore_index=True)
 
         result = ranker.transform(input_df)
 
-        # With batching enabled, should make fewer calls
-        # For 15 docs with window=5, stride=3: windows at [0:5], [3:8], [6:11], [9:14], [12:15]
-        # That's 5 windows, should be batched into 1 call
+        # With cross-query batching enabled, should make fewer calls
+        # For 15 docs with window=5, stride=3: 4 windows per query
+        # 3 queries × 4 windows = 12 windows total, should be batched into 1 call
         assert len(simple_backend.call_history) == 1
-        assert simple_backend.call_history[0]['batch_size'] == 5
+        assert simple_backend.call_history[0]['batch_size'] == 12
 
     def test_batching_produces_correct_results(self, simple_backend):
         """Test that batched processing produces correct results."""
@@ -238,6 +254,124 @@ class TestBatchingIntegration:
 
         # Should have valid ranks
         assert list(result['rank']) == list(range(25))
+
+    def test_batching_single_window_across_queries(self, simple_backend):
+        """Test that batching works with SINGLE_WINDOW algorithm across queries."""
+        ranker = GenerativeRanker(
+            model=simple_backend,
+            prompt="Query: {{ query }}\n{% for p in passages %}[{{ loop.index }}] {{ p }}\n{% endfor %}",
+            algorithm=Algorithm.SINGLE_WINDOW,
+            window_size=10
+        )
+
+        # Create input with 5 queries, each with 20 docs
+        dfs = []
+        for i in range(5):
+            df = pd.DataFrame({
+                'qid': [f'q{i}'] * 20,
+                'query': [f'test query {i}'] * 20,
+                'docno': [f'q{i}_d{j}' for j in range(20)],
+                'text': [f'q{i} doc {j}' for j in range(20)],
+                'score': list(range(20, 0, -1))
+            })
+            dfs.append(df)
+        input_df = pd.concat(dfs, ignore_index=True)
+
+        result = ranker.transform(input_df)
+
+        # With cross-query batching enabled, should batch all 5 queries into 1 call
+        # SINGLE_WINDOW: 1 window per query, 5 queries total
+        assert len(simple_backend.call_history) == 1
+        assert simple_backend.call_history[0]['batch_size'] == 5
+
+        # All documents should be present
+        assert len(result) == 100  # 5 queries × 20 docs each
+        assert set(result['docno']) == set(input_df['docno'])
+
+    def test_batching_tdpart_across_queries(self, simple_backend):
+        """Test that batching works with TDPART algorithm across queries."""
+        ranker = GenerativeRanker(
+            model=simple_backend,
+            prompt="Query: {{ query }}\n{% for p in passages %}[{{ loop.index }}] {{ p }}\n{% endfor %}",
+            algorithm=Algorithm.TDPART,
+            window_size=10,
+            buffer=15,
+            cutoff=5,
+            max_iters=3
+        )
+
+        # Create input with 3 queries, each with 30 docs
+        dfs = []
+        for i in range(3):
+            df = pd.DataFrame({
+                'qid': [f'q{i}'] * 30,
+                'query': [f'test query {i}'] * 30,
+                'docno': [f'q{i}_d{j}' for j in range(30)],
+                'text': [f'q{i} doc {j}' for j in range(30)],
+                'score': list(range(30, 0, -1))
+            })
+            dfs.append(df)
+        input_df = pd.concat(dfs, ignore_index=True)
+
+        result = ranker.transform(input_df)
+
+        # With cross-query batching, TDPart should batch windows across queries
+        # Exact number depends on algorithm behavior, but should be > 0
+        assert len(simple_backend.call_history) > 0
+
+        # All documents should be present
+        assert len(result) == 90  # 3 queries × 30 docs each
+        assert set(result['docno']) == set(input_df['docno'])
+
+        # Check that each query has its documents ranked
+        for i in range(3):
+            query_results = result[result['qid'] == f'q{i}']
+            assert len(query_results) == 30
+            # Ranks should be 0-indexed and consecutive
+            assert list(query_results['rank']) == list(range(30))
+
+    def test_batching_tdpart_produces_correct_results(self, simple_backend):
+        """Test that batched TDPart produces correct results."""
+        ranker = GenerativeRanker(
+            model=simple_backend,
+            prompt="Query: {{ query }}\n{% for p in passages %}[{{ loop.index }}] {{ p }}\n{% endfor %}",
+            algorithm=Algorithm.TDPART,
+            window_size=10,
+            buffer=10,
+            cutoff=5,
+            max_iters=5
+        )
+
+        # Create input with 2 queries
+        q1_df = pd.DataFrame({
+            'qid': ['q1'] * 20,
+            'query': ['test query 1'] * 20,
+            'docno': [f'q1_d{i}' for i in range(20)],
+            'text': [f'q1 doc {i}' for i in range(20)],
+            'score': list(range(20, 0, -1))
+        })
+        q2_df = pd.DataFrame({
+            'qid': ['q2'] * 25,
+            'query': ['test query 2'] * 25,
+            'docno': [f'q2_d{i}' for i in range(25)],
+            'text': [f'q2 doc {i}' for i in range(25)],
+            'score': list(range(25, 0, -1))
+        })
+        input_df = pd.concat([q1_df, q2_df], ignore_index=True)
+
+        result = ranker.transform(input_df)
+
+        # All documents should be present
+        assert len(result) == 45
+        assert set(result['docno']) == set(input_df['docno'])
+
+        # Each query should have valid ranks
+        q1_results = result[result['qid'] == 'q1']
+        q2_results = result[result['qid'] == 'q2']
+        assert len(q1_results) == 20
+        assert len(q2_results) == 25
+        assert list(q1_results['rank']) == list(range(20))
+        assert list(q2_results['rank']) == list(range(25))
 
 
 class TestPromptVariations:

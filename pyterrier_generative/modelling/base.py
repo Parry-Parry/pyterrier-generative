@@ -6,7 +6,15 @@ from pyterrier_rag.backend import Backend
 from pyterrier_rag.prompt.jinja import jinja_formatter
 import pandas as pd
 
-from pyterrier_generative._algorithms import Algorithm
+from pyterrier_generative._algorithms import (
+    Algorithm,
+    collect_windows_for_batching,
+    apply_batched_results,
+    sliding_window,
+    single_window,
+    setwise,
+    tdpart
+)
 
 class GenerativeRanker(pt.Transformer):
     """
@@ -34,7 +42,7 @@ class GenerativeRanker(pt.Transformer):
         buffer: int = 20,
         cutoff: int = 10,
         k: int = 10,
-        max_iters: int = 100
+        max_iters: int = 10
     ):
         """
         Initializes the GenerativeRanker with the specified model name.
@@ -80,8 +88,11 @@ class GenerativeRanker(pt.Transformer):
                 prompt_text = self.system_prompt + "\n\n" + prompt_text
             return prompt_text
 
-    def callable_prompt(self, docs, **query_columns):
-        prompt_output = self.prompt(docs=docs, **query_columns)
+    def callable_prompt(self, **query_columns):
+        # Callable prompts receive query_columns but not docs (which is Jinja-specific)
+        # Remove docs from query_columns if present (it's only used for Jinja templates)
+        query_columns.pop('docs', None)
+        prompt_output = self.prompt(**query_columns)
         if self.model.supports_message_input:
             messages = []
             if self.system_prompt is not None:
@@ -228,12 +239,6 @@ class GenerativeRanker(pt.Transformer):
         Returns:
             tuple: (doc_idx_array, doc_texts_array) - ALWAYS in this order
         """
-        from pyterrier_generative._algorithms import (
-            sliding_window,
-            single_window,
-            setwise,
-            tdpart
-        )
 
         # Dispatch based on algorithm type
         if self.algorithm == Algorithm.SLIDING_WINDOW:
@@ -247,13 +252,7 @@ class GenerativeRanker(pt.Transformer):
         else:
             raise ValueError(f"Unknown algorithm: {self.algorithm}")
 
-        # WORKAROUND: Some algorithms have a bug where they swap RankedList arguments
-        # sliding_window and setwise return (texts, docnos) instead of (docnos, texts)
-        # We fix this here to ensure consistent output
-        if self.algorithm in [Algorithm.SLIDING_WINDOW, Algorithm.SETWISE]:
-            return result[1], result[0]  # Swap to (docnos, texts)
-        else:
-            return result  # Already correct (docnos, texts)
+        return result
 
     def transform(self, inp: pd.DataFrame) -> pd.DataFrame:
         """
@@ -270,6 +269,14 @@ class GenerativeRanker(pt.Transformer):
         if inp is None or inp.empty:
             return pd.DataFrame(columns=["qid", "query", "docno", "text", "rank", "score"])
 
+        # Check if we should use cross-query batching
+        if hasattr(self, '_rank_windows_batch'):
+            return self._transform_with_batching(inp)
+        else:
+            return self._transform_sequential(inp)
+
+    def _transform_sequential(self, inp: pd.DataFrame) -> pd.DataFrame:
+        """Transform queries one at a time without batching."""
         results = []
 
         # Process each query independently
@@ -291,6 +298,27 @@ class GenerativeRanker(pt.Transformer):
             })
 
             results.append(query_results)
+
+        # Combine all query results
+        return pd.concat(results, ignore_index=True) if results else pd.DataFrame(
+            columns=["qid", "query", "docno", "text", "rank", "score"]
+        )
+
+    def _transform_with_batching(self, inp: pd.DataFrame) -> pd.DataFrame:
+        """Transform queries with cross-query batching for efficiency."""
+
+        # Collect all windows from all queries
+        all_windows_data = collect_windows_for_batching(self, inp)
+
+        if not all_windows_data:
+            return pd.DataFrame(columns=["qid", "query", "docno", "text", "rank", "score"])
+
+        # Batch process all windows at once across all queries
+        windows_kwargs = [w['kwargs'] for w in all_windows_data]
+        orders = self._rank_windows_batch(windows_kwargs)
+
+        # Apply results back to each query
+        results = apply_batched_results(all_windows_data, orders)
 
         # Combine all query results
         return pd.concat(results, ignore_index=True) if results else pd.DataFrame(

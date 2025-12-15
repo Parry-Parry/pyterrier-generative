@@ -1,29 +1,32 @@
-# Dockerfile for pyterrier-generative testing
+# Lightweight Dockerfile for pyterrier-generative testing
 
 FROM python:3.11-slim
 
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    git \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
+# Install git (needed for pyterrier_rag installation)
+RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
 
-# Install uv
+# Install uv for fast package management
 RUN pip install --no-cache-dir uv
 
+# Copy requirements files
+COPY requirements-dev.txt ./
+COPY requirements.txt ./
+
+# Install test dependencies
+RUN uv pip install --system -r requirements.txt
+RUN uv pip install --system -r requirements-dev.txt
+
 # Copy project files
-COPY requirements.txt requirements-dev.txt pyproject.toml ./
 COPY pyterrier_generative ./pyterrier_generative
 COPY tests ./tests
 COPY pytest.ini ./
+COPY pyproject.toml ./
 
-# Install dependencies
-RUN uv pip install --system -r requirements.txt
-RUN uv pip install --system -r requirements-dev.txt
-RUN uv pip install --system -e .
+# Install package without dependencies
+RUN uv pip install --system --no-deps -e .
 
 # Run tests by default
 CMD ["pytest", "-v", "--cov=pyterrier_generative", "--cov-report=term-missing"]
