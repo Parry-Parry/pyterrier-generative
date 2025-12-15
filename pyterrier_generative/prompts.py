@@ -1,3 +1,7 @@
+
+RANKGPT_SYSTEM_PROMPT = "You are RankGPT, an intelligent assistant that can rank passages based on their relevancy to the query."
+RANKLLM_SYSTEM_PROMPT = "You are RankLLM, an intelligent assistant that can rank passages based on their relevancy to the query"
+
 RANKPROMPT = """\
 I will provide you with {{ num }} passages, each indicated by a numerical identifier []. Rank the passages based on their relevance to the search query: {{ query }}.
 

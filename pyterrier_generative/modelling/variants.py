@@ -5,7 +5,7 @@ import torch
 
 from pyterrier_generative.modelling.base import GenerativeRanker
 from pyterrier_generative._algorithms import Algorithm
-from pyterrier_generative.prompts import RANKPROMPT
+from pyterrier_generative.prompts import RANKPROMPT, RANKGPT_SYSTEM_PROMPT, RANKLLM_SYSTEM_PROMPT
 from pyterrier_generative.modelling.util import Variants
 
 
@@ -160,6 +160,22 @@ class RankGPT(_StandardRanker):
         'gpt4_turbo': 'gpt-4-turbo-preview',
     }
 
+    def __init__(
+        self,
+        model_id: Optional[str] = None,
+        *,
+        prompt: Union[str, callable] = RANKPROMPT,
+        system_prompt: str = RANKGPT_SYSTEM_PROMPT,
+        **kwargs
+    ):
+        """Initialize RankGPT with the RANKGPT system prompt."""
+        super().__init__(
+            model_id=model_id,
+            prompt=prompt,
+            system_prompt=system_prompt,
+            **kwargs
+        )
+
 
 class RankZephyr(_StandardRanker):
     """
@@ -184,6 +200,22 @@ class RankZephyr(_StandardRanker):
         'v1': 'castorini/rank_zephyr_7b_v1_full',
     }
 
+    def __init__(
+        self,
+        model_id: Optional[str] = None,
+        *,
+        prompt: Union[str, callable] = RANKPROMPT,
+        system_prompt: str = RANKLLM_SYSTEM_PROMPT,
+        **kwargs
+    ):
+        """Initialize RankZephyr with the RANKLLM system prompt."""
+        super().__init__(
+            model_id=model_id,
+            prompt=prompt,
+            system_prompt=system_prompt,
+            **kwargs
+        )
+
 
 class RankVicuna(_StandardRanker):
     """
@@ -204,6 +236,22 @@ class RankVicuna(_StandardRanker):
     VARIANTS = {
         'v1': 'castorini/rank_vicuna_7b_v1',
     }
+
+    def __init__(
+        self,
+        model_id: Optional[str] = None,
+        *,
+        prompt: Union[str, callable] = RANKPROMPT,
+        system_prompt: str = RANKLLM_SYSTEM_PROMPT,
+        **kwargs
+    ):
+        """Initialize RankVicuna with the RANKLLM system prompt."""
+        super().__init__(
+            model_id=model_id,
+            prompt=prompt,
+            system_prompt=system_prompt,
+            **kwargs
+        )
 
 
 __all__ = ['RankGPT', 'RankZephyr', 'RankVicuna']
