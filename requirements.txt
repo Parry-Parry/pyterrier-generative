@@ -1,4 +1,3 @@
 pyterrier
-pyterrier_rag@git+https://github.com/terrierteam/pyterrier_rag.git@remove-prompt
-pyterrier_t5@git+https://github.com/Parry-Parry/pyterrier_t5.git
+pyterrier_rag
 transformers[torch]
