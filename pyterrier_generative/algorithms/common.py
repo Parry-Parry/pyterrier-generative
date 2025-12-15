@@ -16,9 +16,9 @@ def iter_windows(n, window_size, stride, verbose: bool = False):
             yield start_idx, end_idx, window_len
 
 
-def split(l, i):
+def split(ranked_list, i):
     """Split a list at index i."""
-    return l[:i], l[i:]
+    return ranked_list[:i], ranked_list[i:]
 
 
 class RankedList(object):

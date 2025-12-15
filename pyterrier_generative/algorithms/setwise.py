@@ -1,7 +1,6 @@
 """Setwise ranking algorithm using heapsort."""
 
 import pandas as pd
-import numpy as np
 
 from pyterrier_generative.algorithms.common import RankedList
 
@@ -10,11 +9,11 @@ def _heapify(model, query, ranking, n, i):
     """Heapify helper function for setwise algorithm."""
     # Find largest among root and children
     largest = i
-    l = 2 * i + 1
+    left = 2 * i + 1
     r = 2 * i + 2
     li_comp = model(**{
         'query': query['query'].iloc[0],
-        'doc_text': [ranking.doc_texts[i], ranking.doc_texts[l]],
+        'doc_text': [ranking.doc_texts[i], ranking.doc_texts[left]],
         'start_idx': 0,
         'end_idx': 1,
         'window_len': 2
@@ -26,8 +25,8 @@ def _heapify(model, query, ranking, n, i):
         'end_idx': 1,
         'window_len': 2
     })
-    if l < n and li_comp == 0:
-        largest = l
+    if left < n and li_comp == 0:
+        largest = left
     if r < n and rl_comp == 0:
         largest = r
 

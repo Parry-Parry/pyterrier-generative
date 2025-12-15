@@ -488,75 +488,75 @@ def _tdpart_step(model, qid: str, query: str, ranking: "RankedList"):
     buffer_budget = int(getattr(model, "buffer", 20))
     pivot_pos = _tdpart_pivot_pos(model)
 
-    # l: current window, r: remainder
-    l = ranking[:window_size]
-    r = ranking[window_size:]
+    # current_window: current window, remainder: remainder
+    current_window = ranking[:window_size]
+    remainder = ranking[window_size:]
 
-    # Initial sort of l
+    # Initial sort of current_window
     kwargs = {
         "qid": qid,
         "query": query,
-        "doc_text": l.doc_texts.tolist(),
-        "doc_idx": l.doc_idx.tolist(),
+        "doc_text": current_window.doc_texts.tolist(),
+        "doc_idx": current_window.doc_idx.tolist(),
         "start_idx": 0,
-        "end_idx": len(l),
-        "window_len": len(l),
+        "end_idx": len(current_window),
+        "window_len": len(current_window),
     }
     order = np.asarray(model(**kwargs))
-    orig = np.arange(len(l))
-    l[orig] = l[order]
+    orig = np.arange(len(current_window))
+    current_window[orig] = current_window[order]
 
     # If we never filled a full window, a single sort is enough
-    if len(l) < window_size:
-        return l, r, True
+    if len(current_window) < window_size:
+        return current_window, remainder, True
 
     # Pivot + partitions
-    p = l[pivot_pos]                 # RankedList of length 1
-    c = l[:pivot_pos]                # candidates better than pivot (in current view)
-    b = l[pivot_pos + 1:]           # backfill worse than pivot (in current view)
+    p = current_window[pivot_pos]                 # RankedList of length 1
+    c = current_window[:pivot_pos]                # candidates better than pivot (in current view)
+    b = current_window[pivot_pos + 1:]           # backfill worse than pivot (in current view)
 
     # We re-score windows of size (window_size-1) plus the pivot => total window_size
     sub_window_size = window_size - 1
 
-    # Grow c until we hit buffer_budget or we exhaust r
+    # Grow c until we hit buffer_budget or we exhaust remainder
     # For batched mode, we need to re-do this sequentially since we need pivot results
-    while len(c) < buffer_budget and len(r) > 0:
-        l2, r = split(r, sub_window_size)   # l2 is RankedList
-        l2 = p + l2                         # inject pivot into this window
+    while len(c) < buffer_budget and len(remainder) > 0:
+        next_window, remainder = split(remainder, sub_window_size)   # next_window is RankedList
+        next_window = p + next_window                         # inject pivot into this window
 
         kwargs = {
             "qid": qid,
             "query": query,
-            "doc_text": l2.doc_texts.tolist(),
-            "doc_idx": l2.doc_idx.tolist(),
+            "doc_text": next_window.doc_texts.tolist(),
+            "doc_idx": next_window.doc_idx.tolist(),
             "start_idx": 0,
-            "end_idx": len(l2),
-            "window_len": len(l2),
+            "end_idx": len(next_window),
+            "window_len": len(next_window),
         }
         order = np.asarray(model(**kwargs))
-        orig = np.arange(len(l2))
-        l2[orig] = l2[order]
+        orig = np.arange(len(next_window))
+        next_window[orig] = next_window[order]
 
         # Find pivot location after sort
         # (p is length-1 RankedList; compare underlying id)
         pivot_id = p.doc_idx[0]
-        p_idx = int(np.where(l2.doc_idx == pivot_id)[0][0])
+        p_idx = int(np.where(next_window.doc_idx == pivot_id)[0][0])
 
         # Left of pivot beats pivot; right does not (for this window)
-        c = c + l2[:p_idx]
-        b = b + l2[p_idx + 1:]
+        c = c + next_window[:p_idx]
+        b = b + next_window[p_idx + 1:]
 
     # If we never found anything better than pivot beyond the initial c,
     # then top-(pivot_pos+1) is finalized.
     if len(c) == pivot_pos:
         top = c + p
-        bottom = b + r
+        bottom = b + remainder
         return top, bottom, True
 
     # Otherwise, we have more candidates than budget: keep first buffer_budget and
     # push the rest (plus pivot and all known-worse) into backfill.
     c_keep, c_extra = split(c, buffer_budget)
-    backfill = c_extra + p + b + r
+    backfill = c_extra + p + b + remainder
     return c_keep, backfill, False
 
 

@@ -2,7 +2,6 @@
 
 from typing import Optional, Union, List
 import re
-import numpy as np
 import torch
 from transformers import T5Tokenizer
 
@@ -51,7 +50,7 @@ class LiT5Backend:
             try:
                 self.model = self.model.bfloat16()
                 bfloat16 = True
-            except:
+            except Exception:
                 bfloat16 = False
         elif bfloat16:
             self.model = self.model.bfloat16()
@@ -137,7 +136,8 @@ class LiT5(GenerativeRanker):
 
         # We don't use a prompt for LiT5 - it has its own template
         # Pass a dummy callable that won't be used
-        dummy_prompt = lambda **kwargs: ""
+        def dummy_prompt(**kwargs):
+            return ""
 
         # Initialize parent, but we'll override _rank_window
         super().__init__(
@@ -161,8 +161,6 @@ class LiT5(GenerativeRanker):
         """
         doc_texts = kwargs.get('doc_text', [])
         query = kwargs.get('query', '')
-        start_idx = kwargs.get('start_idx', 0)
-        end_idx = kwargs.get('end_idx', len(doc_texts))
         window_len = kwargs.get('window_len', len(doc_texts))
 
         # Pad to window_size if needed
