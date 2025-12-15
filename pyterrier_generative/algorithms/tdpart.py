@@ -9,10 +9,6 @@ from pyterrier_generative.algorithms.common import RankedList, split
 logger = logging.getLogger(__name__)
 
 
-# ============================================================================
-# TDPart Helper Functions
-# ============================================================================
-
 def initialize_tdpart_queries(model, inp: pd.DataFrame):
     """
     Initialize query states for batched TDPart processing.
@@ -250,10 +246,6 @@ def convert_tdpart_states_to_windows(queries_state):
     return all_windows
 
 
-# ============================================================================
-# TDPart Batching Functions
-# ============================================================================
-
 def collect_tdpart_windows_for_batching(queries_state, phase='pivot'):
     """
     Collect ranking windows from multiple queries at different phases.
@@ -458,10 +450,6 @@ def tdpart_final_collation_batched(model, queries_state):
             # Update state with re-ranked candidates
             state['candidates'] = sorted_candidates
 
-
-# ============================================================================
-# TDPart Core Algorithm (Sequential)
-# ============================================================================
 
 def _tdpart_pivot_pos(model) -> int:
     """
