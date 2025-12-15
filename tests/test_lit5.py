@@ -9,6 +9,12 @@ import pandas as pd
 import numpy as np
 from pyterrier_generative._algorithms import Algorithm
 
+try:
+    import torch
+    CUDA_AVAILABLE = torch.cuda.is_available()
+except ImportError:
+    CUDA_AVAILABLE = False
+
 
 # Note: LiT5 tests require pyterrier-t5 and transformers
 # Skip tests if dependencies not available
@@ -207,6 +213,7 @@ class TestLiT5Integration:
     """Integration tests for LiT5 (may require model download)."""
 
     @pytest.mark.integration
+    @pytest.mark.skipif(not CUDA_AVAILABLE, reason="CUDA not available")
     def test_transform_basic(self):
         """Test basic transformation (integration test)."""
         pytest.importorskip("pyterrier_t5", reason="pyterrier-t5 not installed")
@@ -238,6 +245,7 @@ class TestLiT5Integration:
             raise
 
     @pytest.mark.integration
+    @pytest.mark.skipif(not CUDA_AVAILABLE, reason="CUDA not available")
     def test_transform_with_batching(self):
         """Test transformation uses batching (integration test)."""
         pytest.importorskip("pyterrier_t5", reason="pyterrier-t5 not installed")

@@ -9,7 +9,7 @@ from pyterrier_generative.prompts import RANKPROMPT, RANKGPT_SYSTEM_PROMPT, RANK
 from pyterrier_generative.modelling.util import Variants
 
 
-class _StandardRanker(GenerativeRanker, metaclass=Variants):
+class _GenerativeRanker(GenerativeRanker, metaclass=Variants):
     """
     Base class for standard pre-configured rankers with variants.
 
@@ -123,7 +123,7 @@ class _StandardRanker(GenerativeRanker, metaclass=Variants):
         )
 
 
-class RankGPT(_StandardRanker):
+class RankGPT(_GenerativeRanker):
     """
     RankGPT ranker using OpenAI's GPT models.
 
@@ -177,7 +177,7 @@ class RankGPT(_StandardRanker):
         )
 
 
-class RankZephyr(_StandardRanker):
+class RankZephyr(_GenerativeRanker):
     """
     RankZephyr ranker using the Zephyr-7B model.
 
@@ -217,7 +217,7 @@ class RankZephyr(_StandardRanker):
         )
 
 
-class RankVicuna(_StandardRanker):
+class RankVicuna(_GenerativeRanker):
     """
     RankVicuna ranker using the Vicuna-7B model.
 
@@ -254,4 +254,7 @@ class RankVicuna(_StandardRanker):
         )
 
 
-__all__ = ['RankGPT', 'RankZephyr', 'RankVicuna']
+# Alias for backwards compatibility
+StandardRanker = _GenerativeRanker
+
+__all__ = ['StandardRanker', 'RankGPT', 'RankZephyr', 'RankVicuna']

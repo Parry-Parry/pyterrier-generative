@@ -8,6 +8,12 @@ import pytest
 from pyterrier_generative.modelling.variants import StandardRanker, RankZephyr, RankVicuna, RankGPT
 from pyterrier_generative._algorithms import Algorithm
 
+try:
+    import torch
+    CUDA_AVAILABLE = torch.cuda.is_available()
+except ImportError:
+    CUDA_AVAILABLE = False
+
 
 # Note: These tests check the configuration and initialization
 # They don't actually run the models (which would require GPU/API keys)
@@ -53,6 +59,7 @@ class TestStandardRankerInit:
             # Expected without API key
             pass
 
+    @pytest.mark.skipif(not CUDA_AVAILABLE, reason="CUDA not available")
     def test_backend_autodetect_vllm(self):
         """Test backend auto-detection for HF models."""
         # Note: This will fail if vllm is not installed, but tests the logic
@@ -82,6 +89,7 @@ class TestStandardRankerInit:
             # Expected without API key
             pass
 
+    @pytest.mark.skipif(not CUDA_AVAILABLE, reason="CUDA not available")
     def test_explicit_backend_vllm(self):
         """Test explicit vLLM backend specification."""
         try:
@@ -95,6 +103,7 @@ class TestStandardRankerInit:
         except ImportError:
             pytest.skip("vLLM not available")
 
+    @pytest.mark.skipif(not CUDA_AVAILABLE, reason="CUDA not available")
     def test_explicit_backend_hf(self):
         """Test explicit HuggingFace backend specification."""
         try:
@@ -142,6 +151,7 @@ class TestStandardRankerInit:
             # Expected without API key
             pass
 
+    @pytest.mark.skipif(not CUDA_AVAILABLE, reason="CUDA not available")
     def test_repr_variant(self):
         """Test repr for known variant."""
         try:
@@ -154,6 +164,7 @@ class TestStandardRankerInit:
         except ImportError:
             pytest.skip("vLLM not available")
 
+    @pytest.mark.skipif(not CUDA_AVAILABLE, reason="CUDA not available")
     def test_repr_custom_model(self):
         """Test repr for custom model."""
         try:
@@ -177,6 +188,7 @@ class TestStandardRankerInit:
 class TestRankZephyr:
     """Test RankZephyr class."""
 
+    @pytest.mark.skipif(not CUDA_AVAILABLE, reason="CUDA not available")
     def test_rankzephyr_v1_variant(self):
         """Test that RankZephyr.v1() creates ranker with correct model."""
         try:
@@ -186,6 +198,7 @@ class TestRankZephyr:
         except ImportError:
             pytest.skip("vLLM not available")
 
+    @pytest.mark.skipif(not CUDA_AVAILABLE, reason="CUDA not available")
     def test_rankzephyr_with_parameters(self):
         """Test RankZephyr with custom parameters."""
         try:
@@ -202,6 +215,7 @@ class TestRankZephyr:
         except ImportError:
             pytest.skip("vLLM not available")
 
+    @pytest.mark.skipif(not CUDA_AVAILABLE, reason="CUDA not available")
     def test_rankzephyr_backend_override(self):
         """Test RankZephyr with backend override."""
         try:
@@ -214,6 +228,7 @@ class TestRankZephyr:
 class TestRankVicuna:
     """Test RankVicuna class."""
 
+    @pytest.mark.skipif(not CUDA_AVAILABLE, reason="CUDA not available")
     def test_rankvicuna_v1_variant(self):
         """Test that RankVicuna.v1() creates ranker with correct model."""
         try:
@@ -223,6 +238,7 @@ class TestRankVicuna:
         except ImportError:
             pytest.skip("vLLM not available")
 
+    @pytest.mark.skipif(not CUDA_AVAILABLE, reason="CUDA not available")
     def test_rankvicuna_with_parameters(self):
         """Test RankVicuna with custom parameters."""
         try:
