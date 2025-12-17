@@ -45,36 +45,46 @@ def collect_windows_for_batching(model, inp: pd.DataFrame):
 
     all_windows = []
 
-    for qid, query_group in inp.groupby('qid'):
-        query = query_group['query'].iloc[0]
-        query_results = query_group.sort_values('score', ascending=False)
+    # Check algorithm type and handle accordingly
+    if model.algorithm == AlgorithmImport.SLIDING_WINDOW:
+        # Use state-based batching for sliding window
+        from pyterrier_generative.algorithms.sliding_window import (
+            initialize_sliding_window_queries,
+            sliding_window_batched_iteration,
+            convert_sliding_window_states_to_windows
+        )
 
-        doc_idx = query_results['docno'].to_numpy()
-        doc_texts = query_results['text'].to_numpy()
-        ranking = RankedList(doc_idx, doc_texts)
+        queries_state = initialize_sliding_window_queries(model, inp)
+        sliding_window_batched_iteration(model, queries_state)
+        all_windows = convert_sliding_window_states_to_windows(queries_state)
 
-        # Collect windows based on algorithm
-        if model.algorithm == AlgorithmImport.SLIDING_WINDOW:
-            # Multiple windows per query
-            for start_idx, end_idx, window_len in iter_windows(len(query_results), model.window_size, model.stride):
-                kwargs = {
-                    'qid': qid,
-                    'query': query,
-                    'doc_text': ranking[start_idx:end_idx].doc_texts.tolist(),
-                    'doc_idx': ranking[start_idx:end_idx].doc_idx.tolist(),
-                    'start_idx': start_idx,
-                    'end_idx': end_idx,
-                    'window_len': window_len
-                }
-                all_windows.append({
-                    'qid': qid,
-                    'query': query,
-                    'ranking': ranking,
-                    'window_info': (start_idx, end_idx),
-                    'kwargs': kwargs
-                })
-        elif model.algorithm == AlgorithmImport.SINGLE_WINDOW:
-            # Single window per query
+    elif model.algorithm == AlgorithmImport.TDPART:
+        # Use state-based batching for TDPart
+        queries_state = initialize_tdpart_queries(model, inp)
+
+        # Run batched iterations
+        max_iters = int(getattr(model, "max_iters", 100))
+        for iteration in range(max_iters):
+            active = tdpart_batched_iteration(model, queries_state, iteration)
+            if active == 0:
+                break
+
+        # Final collation: batch rank all candidates to get definitive top-k
+        tdpart_final_collation_batched(model, queries_state)
+
+        # Convert states to windows_data format for compatibility
+        all_windows = convert_tdpart_states_to_windows(queries_state)
+
+    elif model.algorithm == AlgorithmImport.SINGLE_WINDOW:
+        # Single window per query - simple case
+        for qid, query_group in inp.groupby('qid'):
+            query = query_group['query'].iloc[0]
+            query_results = query_group.sort_values('score', ascending=False)
+
+            doc_idx = query_results['docno'].to_numpy()
+            doc_texts = query_results['text'].to_numpy()
+            ranking = RankedList(doc_idx, doc_texts)
+
             candidates = query_results.iloc[:model.window_size]
             doc_idx = candidates['docno'].to_numpy()
             doc_texts = candidates['text'].to_numpy()
@@ -98,24 +108,6 @@ def collect_windows_for_batching(model, inp: pd.DataFrame):
                 'rest_texts': query_results.iloc[model.window_size:]['text'].to_numpy()
             })
 
-    # Check if TDPart algorithm - handle separately
-    if model.algorithm == AlgorithmImport.TDPART:
-        # Initialize query states
-        queries_state = initialize_tdpart_queries(model, inp)
-
-        # Run batched iterations
-        max_iters = int(getattr(model, "max_iters", 100))
-        for iteration in range(max_iters):
-            active = tdpart_batched_iteration(model, queries_state, iteration)
-            if active == 0:
-                break
-
-        # Final collation: batch rank all candidates to get definitive top-k
-        tdpart_final_collation_batched(model, queries_state)
-
-        # Convert states to windows_data format for compatibility
-        all_windows = convert_tdpart_states_to_windows(queries_state)
-
     return all_windows
 
 
@@ -130,9 +122,9 @@ def apply_batched_results(all_windows_data, orders):
     Returns:
         List of DataFrames, one per query
     """
-    # Check if this is TDPart (different structure)
-    if all_windows_data and 'tdpart_state' in all_windows_data[0]:
-        # TDPart: rankings are already finalized in the window data
+    # Check if this is TDPart or Sliding Window with state-based processing
+    if all_windows_data and ('tdpart_state' in all_windows_data[0] or 'sliding_window_state' in all_windows_data[0]):
+        # Rankings are already finalized in the window data
         results = []
         for window_data in all_windows_data:
             qid = window_data['qid']
@@ -149,7 +141,7 @@ def apply_batched_results(all_windows_data, orders):
             results.append(query_results)
         return results
 
-    # Group windows by query
+    # Group windows by query (for SINGLE_WINDOW algorithm)
     query_windows = {}
     for window_data, order in zip(all_windows_data, orders):
         qid = window_data['qid']
@@ -177,7 +169,7 @@ def apply_batched_results(all_windows_data, orders):
                 orig_idxs = np.arange(0, len(order))
                 ranking[orig_idxs] = ranking[new_idxs]
             else:
-                # SLIDING_WINDOW: rerank within window
+                # Should not reach here anymore for SLIDING_WINDOW
                 new_idxs = start_idx + order
                 orig_idxs = np.arange(start_idx, end_idx)
                 ranking[orig_idxs] = ranking[new_idxs]
