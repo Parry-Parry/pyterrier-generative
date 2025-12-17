@@ -38,8 +38,31 @@ class _GenerativeRanker(GenerativeRanker, metaclass=Variants):
         device: Optional[Union[str, torch.device]] = None,
         api_key: Optional[str] = None,
         verbose: bool = False,
+        backend_kwargs: Optional[dict] = None,
     ):
-        """Initialize StandardRanker with the specified model."""
+        """
+        Initialize StandardRanker with the specified model.
+
+        Args:
+            model_id: Model identifier (uses first variant if None)
+            prompt: Prompt template (Jinja2 string or callable)
+            system_prompt: System prompt for the model
+            algorithm: Ranking algorithm to use
+            window_size: Size of ranking window
+            stride: Stride for sliding window
+            buffer: Buffer size for tdpart
+            cutoff: Cutoff position for tdpart
+            k: Top-k for setwise
+            max_iters: Max iterations for tdpart
+            max_new_tokens: Max tokens to generate
+            backend: Backend to use ('vllm', 'hf', 'openai')
+            model_args: Backend-specific model arguments
+            generation_args: Backend-specific generation arguments
+            device: Device for HF backend
+            api_key: API key for OpenAI backend
+            verbose: Enable verbose logging
+            backend_kwargs: Additional backend-specific kwargs (e.g., batch_size)
+        """
 
         # Use first variant as default if no model_id provided
         if model_id is None:
@@ -61,6 +84,9 @@ class _GenerativeRanker(GenerativeRanker, metaclass=Variants):
             generation_args = generation_args or {}
             generation_args['api_key'] = api_key
 
+        # Prepare backend kwargs
+        extra_kwargs = backend_kwargs or {}
+
         # Select and initialize backend
         if backend == 'vllm':
             from pyterrier_rag.backend.vllm import VLLMBackend
@@ -70,6 +96,7 @@ class _GenerativeRanker(GenerativeRanker, metaclass=Variants):
                 generation_args=generation_args,
                 max_new_tokens=max_new_tokens,
                 verbose=verbose,
+                **extra_kwargs,
             )
         elif backend == 'hf':
             from pyterrier_rag.backend.hf import HuggingFaceBackend
@@ -80,6 +107,7 @@ class _GenerativeRanker(GenerativeRanker, metaclass=Variants):
                 max_new_tokens=max_new_tokens,
                 device=device,
                 verbose=verbose,
+                **extra_kwargs,
             )
         elif backend == 'openai':
             from pyterrier_rag.backend.openai import OpenAIBackend
@@ -88,6 +116,7 @@ class _GenerativeRanker(GenerativeRanker, metaclass=Variants):
                 generation_args=generation_args,
                 max_new_tokens=max_new_tokens,
                 verbose=verbose,
+                **extra_kwargs,
             )
         else:
             raise ValueError(f"Unknown backend: {backend}. Use 'vllm', 'hf', or 'openai'.")
@@ -143,6 +172,11 @@ class RankGPT(_GenerativeRanker):
         # Use with custom parameters
         ranker = RankGPT.gpt35(window_size=10, stride=5)
 
+        # Pass backend-specific kwargs
+        ranker = RankGPT.gpt4(
+            backend_kwargs={'timeout': 60}
+        )
+
         # In a pipeline
         pipeline = bm25 % 20 >> RankGPT.gpt4()
         results = pipeline.search("What is information retrieval?")
@@ -193,6 +227,12 @@ class RankZephyr(_GenerativeRanker):
         # With custom backend
         ranker = RankZephyr.v1(backend='hf')
 
+        # Pass backend-specific kwargs like batch_size
+        ranker = RankZephyr.v1(
+            backend='vllm',
+            backend_kwargs={'batch_size': 32}
+        )
+
     .. automethod:: v1()
     """
 
@@ -229,6 +269,12 @@ class RankVicuna(_GenerativeRanker):
 
         # Use default variant
         ranker = RankVicuna.v1()
+
+        # Pass backend-specific kwargs like batch_size
+        ranker = RankVicuna.v1(
+            backend='vllm',
+            backend_kwargs={'batch_size': 32}
+        )
 
     .. automethod:: v1()
     """
