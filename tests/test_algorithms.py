@@ -11,7 +11,6 @@ import numpy as np
 from pyterrier_generative._algorithms import (
     sliding_window,
     single_window,
-    setwise,
     tdpart,
     Algorithm,
     RankedList,
@@ -207,10 +206,11 @@ class TestSlidingWindow:
         assert len(doc_idx) == 5
         assert len(doc_texts) == 5
 
-    def test_sliding_window_batched(self, sample_dataframe):
-        """Test sliding window without batching (batching moved to transform level)."""
-        # Note: Batching is now handled at the transform level, not in sliding_window directly
-        # This test verifies that sliding_window still works when called directly
+    def test_sliding_window_sequential_processing(self, sample_dataframe):
+        """Test sliding window processes windows sequentially for a single query."""
+        # The sliding_window function processes windows one at a time sequentially
+        # Windows cannot be precomputed as each depends on the previous window's results
+        # Cross-query batching happens at the transform level (not tested here)
         model = SimpleRanker(window_size=10, stride=5)
         doc_idx, doc_texts = sliding_window(model, 'test query', sample_dataframe)
 

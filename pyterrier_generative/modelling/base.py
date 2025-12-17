@@ -269,40 +269,8 @@ class GenerativeRanker(pt.Transformer):
         if inp is None or inp.empty:
             return pd.DataFrame(columns=["qid", "query", "docno", "text", "rank", "score"])
 
-        # Check if we should use cross-query batching
-        if hasattr(self, '_rank_windows_batch'):
-            return self._transform_with_batching(inp)
-        else:
-            return self._transform_sequential(inp)
-
-    def _transform_sequential(self, inp: pd.DataFrame) -> pd.DataFrame:
-        """Transform queries one at a time without batching."""
-        results = []
-
-        # Process each query independently
-        for qid, query_group in inp.groupby('qid'):
-            query = query_group['query'].iloc[0]
-
-            # Apply the selected algorithm
-            ranked_docnos, ranked_texts = self._apply_algorithm(query, query_group)
-
-            # Build output DataFrame for this query
-            num_docs = len(ranked_docnos)
-            query_results = pd.DataFrame({
-                'qid': [qid] * num_docs,
-                'query': [query] * num_docs,
-                'docno': ranked_docnos,
-                'text': ranked_texts,
-                'rank': range(num_docs),  # 0-indexed ranks
-                'score': [num_docs - i for i in range(num_docs)]  # score = negative rank + 1
-            })
-
-            results.append(query_results)
-
-        # Combine all query results
-        return pd.concat(results, ignore_index=True) if results else pd.DataFrame(
-            columns=["qid", "query", "docno", "text", "rank", "score"]
-        )
+        # Always use cross-query batching for efficiency
+        return self._transform_with_batching(inp)
 
     def _transform_with_batching(self, inp: pd.DataFrame) -> pd.DataFrame:
         """Transform queries with cross-query batching for efficiency."""
@@ -311,9 +279,12 @@ class GenerativeRanker(pt.Transformer):
         all_windows_data = collect_windows_for_batching(self, inp)
 
         if not all_windows_data:
-            return pd.DataFrame(columns=["qid", "query", "docno", "text", "rank", "score"])
+            return pd.DataFrame(
+                columns=["qid", "query", "docno", "text", "rank", "score"]
+            )
 
         # Batch process all windows at once across all queries
+        # The backend is responsible for its own batch size management
         windows_kwargs = [w['kwargs'] for w in all_windows_data]
         orders = self._rank_windows_batch(windows_kwargs)
 

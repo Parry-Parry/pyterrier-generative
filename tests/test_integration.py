@@ -222,11 +222,15 @@ class TestBatchingIntegration:
 
         result = ranker.transform(input_df)
 
-        # With cross-query batching enabled, should make fewer calls
-        # For 15 docs with window=5, stride=3: 4 windows per query
-        # 3 queries × 4 windows = 12 windows total, should be batched into 1 call
-        assert len(simple_backend.call_history) == 1
-        assert simple_backend.call_history[0]['batch_size'] == 12
+        # With cross-query batching for sliding window:
+        # - Windows cannot be precomputed as each window depends on previous results
+        # - Instead, we process window position 0 across all queries, then position 1, etc.
+        # - For 15 docs with window=5, stride=3: we get 5 window positions per query
+        # - Each call batches the same window position across all 3 queries
+        # - So we expect 5 calls, each with batch_size=3
+        assert len(simple_backend.call_history) == 5
+        for call in simple_backend.call_history:
+            assert call['batch_size'] == 3
 
     def test_batching_produces_correct_results(self, simple_backend):
         """Test that batched processing produces correct results."""

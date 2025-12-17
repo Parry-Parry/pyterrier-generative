@@ -41,6 +41,12 @@ def initialize_sliding_window_queries(model, inp: pd.DataFrame):
     """
     Initialize query states for batched sliding window processing.
 
+    Note: Window positions are precomputed, but the windows themselves
+    cannot be precomputed because each window's content depends on the
+    reordering from the previous window. Windows must be processed
+    iteratively: window 0 is processed across all queries, then window 1
+    is extracted from the updated rankings, etc.
+
     Args:
         model: The generative ranker model
         inp: Input DataFrame with all queries
@@ -142,17 +148,21 @@ def apply_sliding_window_batch_results(windows_data, orders, queries_state):
 
 def sliding_window_batched_iteration(model, queries_state):
     """
-    Execute sliding window processing across all queries with cross-query batching.
+    Execute sliding window processing across all queries with batching.
 
-    This processes one window position at a time across all queries, ensuring that
-    windows from the same query are never batched together (as they depend on each other).
+    This processes one window position at a time across all queries, ensuring
+    that windows from the same query are never batched together (as they
+    depend on each other). All windows at the same position are passed to
+    the backend, which handles its own batch size management.
 
     Args:
         model: The generative ranker model
         queries_state: Dict mapping qid -> query state
     """
     # Find the maximum number of windows across all queries
-    max_windows = max(state['total_windows'] for state in queries_state.values())
+    max_windows = max(
+        state['total_windows'] for state in queries_state.values()
+    )
 
     # Process each window position across all queries
     for window_idx in range(max_windows):
@@ -163,6 +173,7 @@ def sliding_window_batched_iteration(model, queries_state):
             break
 
         # Batch rank all windows at this position
+        # Backend handles its own batch size management
         kwargs_list = [w['kwargs'] for w in windows]
         orders = model._rank_windows_batch(kwargs_list)
 

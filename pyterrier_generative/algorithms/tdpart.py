@@ -367,7 +367,9 @@ def tdpart_batched_iteration(model, queries_state, iteration):
         Number of queries still active
     """
     # Phase 1: Pivot finding for new queries
-    pivot_windows = collect_tdpart_windows_for_batching(queries_state, 'pivot')
+    pivot_windows = collect_tdpart_windows_for_batching(
+        queries_state, 'pivot'
+    )
     if pivot_windows:
         kwargs_list = [w['kwargs'] for w in pivot_windows]
         orders = model._rank_windows_batch(kwargs_list)
@@ -376,7 +378,9 @@ def tdpart_batched_iteration(model, queries_state, iteration):
     # Phase 2: Candidate growth (iterative with budget filling)
     max_rounds = 100  # Safety limit
     for _ in range(max_rounds):
-        grow_windows = collect_tdpart_windows_for_batching(queries_state, 'grow')
+        grow_windows = collect_tdpart_windows_for_batching(
+            queries_state, 'grow'
+        )
         if not grow_windows:
             break  # All queries exhausted or done
 
