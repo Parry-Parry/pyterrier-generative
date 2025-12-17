@@ -89,7 +89,7 @@ class _GenerativeRanker(GenerativeRanker, metaclass=Variants):
 
         # Select and initialize backend
         if backend == 'vllm':
-            from pyterrier_rag.backend.vllm import VLLMBackend
+            from pyterrier_rag.backend import VLLMBackend
             backend_instance = VLLMBackend(
                 model_id=model_id,
                 model_args=model_args or {},
@@ -99,7 +99,7 @@ class _GenerativeRanker(GenerativeRanker, metaclass=Variants):
                 **extra_kwargs,
             )
         elif backend == 'hf':
-            from pyterrier_rag.backend.hf import HuggingFaceBackend
+            from pyterrier_rag.backend import HuggingFaceBackend
             backend_instance = HuggingFaceBackend(
                 model_id=model_id,
                 model_args=model_args or {},
@@ -110,7 +110,7 @@ class _GenerativeRanker(GenerativeRanker, metaclass=Variants):
                 **extra_kwargs,
             )
         elif backend == 'openai':
-            from pyterrier_rag.backend.openai import OpenAIBackend
+            from pyterrier_rag.backend import OpenAIBackend
             backend_instance = OpenAIBackend(
                 model_id=model_id,
                 generation_args=generation_args,
