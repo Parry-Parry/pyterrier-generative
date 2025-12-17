@@ -11,6 +11,12 @@ from pyterrier_generative.modelling.base import GenerativeRanker
 from pyterrier_generative._algorithms import Algorithm
 
 
+class GenerationOutput:
+    """Wrapper to match real backend output format."""
+    def __init__(self, text):
+        self.text = text
+
+
 class DeterministicBackend:
     """
     Simple deterministic backend for testing.
@@ -49,7 +55,7 @@ class DeterministicBackend:
                 # Return sequential order
                 ranking = " ".join(str(i) for i in range(1, num_passages + 1))
 
-            outputs.append(ranking)
+            outputs.append(GenerationOutput(ranking))
 
         return outputs
 
@@ -90,7 +96,7 @@ class MessageBackend(DeterministicBackend):
                 # Return sequential order
                 ranking = " ".join(str(i) for i in range(1, num_passages + 1))
 
-            outputs.append(ranking)
+            outputs.append(GenerationOutput(ranking))
 
         return outputs
 

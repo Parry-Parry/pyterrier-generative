@@ -10,6 +10,12 @@ import pandas as pd
 from pyterrier_generative import GenerativeRanker, Algorithm
 
 
+class GenerationOutput:
+    """Wrapper to match real backend output format."""
+    def __init__(self, text):
+        self.text = text
+
+
 class DeterministicBackend:
     """
     Deterministic backend that always produces the same ranking.
@@ -45,7 +51,7 @@ class DeterministicBackend:
 
             # Return reverse order: N, N-1, ..., 2, 1
             ranking = " ".join(str(i) for i in range(n, 0, -1))
-            outputs.append(ranking)
+            outputs.append(GenerationOutput(ranking))
 
         return outputs
 

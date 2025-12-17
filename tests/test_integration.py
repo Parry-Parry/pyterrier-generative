@@ -10,6 +10,12 @@ import numpy as np
 from pyterrier_generative import GenerativeRanker, Algorithm
 
 
+class GenerationOutput:
+    """Wrapper to match real backend output format."""
+    def __init__(self, text):
+        self.text = text
+
+
 class SimpleDeterministicBackend:
     """
     Deterministic backend that always produces the same ranking.
@@ -39,7 +45,7 @@ class SimpleDeterministicBackend:
 
             # Return reverse order: N, N-1, ..., 2, 1
             ranking = " ".join(str(i) for i in range(n, 0, -1))
-            outputs.append(ranking)
+            outputs.append(GenerationOutput(ranking))
 
         return outputs
 
@@ -225,10 +231,11 @@ class TestBatchingIntegration:
         # With cross-query batching for sliding window:
         # - Windows cannot be precomputed as each window depends on previous results
         # - Instead, we process window position 0 across all queries, then position 1, etc.
-        # - For 15 docs with window=5, stride=3: we get 5 window positions per query
+        # - For 15 docs with window=5, stride=3: we get 4 window positions per query
+        #   (positions 0-4, 3-7, 6-10, 9-13)
         # - Each call batches the same window position across all 3 queries
-        # - So we expect 5 calls, each with batch_size=3
-        assert len(simple_backend.call_history) == 5
+        # - So we expect 4 calls, each with batch_size=3
+        assert len(simple_backend.call_history) == 4
         for call in simple_backend.call_history:
             assert call['batch_size'] == 3
 

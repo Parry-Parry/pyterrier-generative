@@ -165,16 +165,16 @@ class GenerativeRanker(pt.Transformer):
         )
 
         # Generate using backend
-        # backend.generate() expects list of prompts/messages, returns list of outputs
-        # It handles batching internally and supports both string and message format
+        # backend.generate() expects list of prompts/messages, returns list of output objects
+        # Each output object must have a .text attribute
         outputs = self.model.generate([prompt])
 
-        # Extract the output text
-        # Assuming generate() returns list of strings
+        # Extract the output text from the output object
         output_text = outputs[0]
+        text = output_text.text
 
         # Parse output to get ranking order
-        order = self.parse_output(output_text, len(doc_texts))
+        order = self.parse_output(text, len(doc_texts))
 
         return order
 
@@ -217,13 +217,15 @@ class GenerativeRanker(pt.Transformer):
             prompts.append(prompt)
 
         # Batch generate using backend - this is where efficiency gains come from
+        # Backend returns list of output objects, each with a .text attribute
         outputs = self.model.generate(prompts)
 
-        # Parse all outputs
         orders = []
         for output_text, kwargs in zip(outputs, windows_kwargs):
             doc_texts = kwargs.get('doc_text', [])
-            order = self.parse_output(output_text, len(doc_texts))
+            # Extract text from output object
+            text = output_text.text
+            order = self.parse_output(text, len(doc_texts))
             orders.append(order)
 
         return orders
@@ -276,6 +278,7 @@ class GenerativeRanker(pt.Transformer):
         """Transform queries with cross-query batching for efficiency."""
 
         # Collect all windows from all queries
+        # For SLIDING_WINDOW and TDPART, this also executes the algorithm
         all_windows_data = collect_windows_for_batching(self, inp)
 
         if not all_windows_data:
@@ -283,10 +286,20 @@ class GenerativeRanker(pt.Transformer):
                 columns=["qid", "query", "docno", "text", "rank", "score"]
             )
 
-        # Batch process all windows at once across all queries
-        # The backend is responsible for its own batch size management
-        windows_kwargs = [w['kwargs'] for w in all_windows_data]
-        orders = self._rank_windows_batch(windows_kwargs)
+        # Check if algorithm already processed everything
+        # (SLIDING_WINDOW and TDPART process during collection)
+        already_processed = (
+            'tdpart_state' in all_windows_data[0] or
+            'sliding_window_state' in all_windows_data[0]
+        )
+
+        if already_processed:
+            # Rankings already finalized, just build results
+            orders = None
+        else:
+            # SINGLE_WINDOW: batch process all windows
+            windows_kwargs = [w['kwargs'] for w in all_windows_data]
+            orders = self._rank_windows_batch(windows_kwargs)
 
         # Apply results back to each query
         results = apply_batched_results(all_windows_data, orders)
