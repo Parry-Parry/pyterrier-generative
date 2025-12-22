@@ -39,6 +39,11 @@ class _GenerativeRanker(GenerativeRanker, metaclass=Variants):
         api_key: Optional[str] = None,
         verbose: bool = False,
         backend_kwargs: Optional[dict] = None,
+        # Document truncation parameters
+        truncate_docs: bool = False,
+        max_prompt_length: Optional[int] = None,
+        truncate_tokens_per_iter: int = 50,
+        truncate_max_iters: int = 100,
     ):
         """
         Initialize StandardRanker with the specified model.
@@ -61,7 +66,11 @@ class _GenerativeRanker(GenerativeRanker, metaclass=Variants):
             device: Device for HF backend
             api_key: API key for OpenAI backend
             verbose: Enable verbose logging
-            backend_kwargs: Additional backend-specific kwargs (e.g., batch_size)
+            backend_kwargs: Additional backend-specific kwargs
+            truncate_docs: Enable document truncation for long prompts
+            max_prompt_length: Max prompt length in tokens (None=use backend)
+            truncate_tokens_per_iter: Tokens to remove per doc per iteration
+            truncate_max_iters: Max truncation iterations
         """
 
         # Use first variant as default if no model_id provided
@@ -133,6 +142,10 @@ class _GenerativeRanker(GenerativeRanker, metaclass=Variants):
             cutoff=cutoff,
             k=k,
             max_iters=max_iters,
+            truncate_docs=truncate_docs,
+            max_prompt_length=max_prompt_length,
+            truncate_tokens_per_iter=truncate_tokens_per_iter,
+            truncate_max_iters=truncate_max_iters,
         )
 
         self.backend_type = backend
