@@ -1,4 +1,5 @@
 import re
+from typing import Optional
 
 import pyterrier as pt
 import pyterrier_alpha as pta
@@ -14,6 +15,11 @@ from pyterrier_generative._algorithms import (
     single_window,
     setwise,
     tdpart
+)
+from pyterrier_generative.truncation import (
+    get_token_counter,
+    truncate_documents_iterative,
+    estimate_prompt_overhead
 )
 
 class GenerativeRanker(pt.Transformer):
@@ -42,7 +48,12 @@ class GenerativeRanker(pt.Transformer):
         buffer: int = 20,
         cutoff: int = 10,
         k: int = 10,
-        max_iters: int = 10
+        max_iters: int = 10,
+        # Document truncation parameters
+        truncate_docs: bool = False,
+        max_prompt_length: Optional[int] = None,
+        truncate_tokens_per_iter: int = 50,
+        truncate_max_iters: int = 100
     ):
         """
         Initializes the GenerativeRanker with the specified model name.
@@ -58,6 +69,10 @@ class GenerativeRanker(pt.Transformer):
             cutoff (int): Cutoff position for tdpart algorithm.
             k (int): Top-k cutoff for setwise algorithm.
             max_iters (int): Maximum iterations for tdpart algorithm.
+            truncate_docs (bool): Enable automatic document truncation when prompts exceed max length.
+            max_prompt_length (int, optional): Maximum prompt length in tokens. If None, uses backend's max_input_length.
+            truncate_tokens_per_iter (int): Number of tokens to remove per document per iteration.
+            truncate_max_iters (int): Maximum truncation iterations before giving up.
         """
         self.model = model
         self.prompt = prompt if callable(prompt) else jinja_formatter(prompt)
@@ -74,6 +89,15 @@ class GenerativeRanker(pt.Transformer):
         self.cutoff = cutoff
         self.k = k
         self.max_iters = max_iters
+
+        # Document truncation settings
+        self.truncate_docs = truncate_docs
+        self.max_prompt_length = max_prompt_length
+        self.truncate_tokens_per_iter = truncate_tokens_per_iter
+        self.truncate_max_iters = truncate_max_iters
+
+        # Initialize token counter lazily (only if truncation is enabled)
+        self._token_counter = None
 
     def string_prompt(self, docs, **query_columns):
         prompt_text = self.prompt(docs=docs, **query_columns)
@@ -126,6 +150,62 @@ class GenerativeRanker(pt.Transformer):
         order = output + [i for i in range(length) if i not in output] # backfill missing passages
         return order
 
+    def _get_token_counter(self):
+        """Lazily initialize and return the token counter."""
+        if self._token_counter is None:
+            self._token_counter = get_token_counter(self.model)
+        return self._token_counter
+
+    def _apply_truncation(self, doc_texts: list, query: str) -> list:
+        """
+        Apply document truncation if enabled and necessary.
+
+        Args:
+            doc_texts: List of document text strings
+            query: Query string
+
+        Returns:
+            List of potentially truncated document texts
+        """
+        if not self.truncate_docs:
+            return doc_texts
+
+        # Get max prompt length (use backend's max_input_length if not specified)
+        max_length = self.max_prompt_length
+        if max_length is None:
+            max_length = getattr(self.model, 'max_input_length', None)
+            if max_length is None:
+                # No max length available, skip truncation
+                return doc_texts
+
+        # Get token counter
+        token_counter = self._get_token_counter()
+
+        # Estimate prompt overhead
+        overhead = estimate_prompt_overhead(query, len(doc_texts), token_counter)
+
+        # Apply iterative truncation
+        truncated_texts, success = truncate_documents_iterative(
+            doc_texts=doc_texts,
+            prompt_template_overhead=overhead,
+            max_length=max_length,
+            token_counter=token_counter,
+            tokens_to_remove_per_iter=self.truncate_tokens_per_iter,
+            max_iterations=self.truncate_max_iters
+        )
+
+        if not success:
+            # Truncation failed - final prompt still exceeds max_length
+            final_tokens = sum(token_counter.count_tokens_batch(truncated_texts)) + overhead
+            raise ValueError(
+                f"Document truncation failed to fit within max_length={max_length}. "
+                f"Final prompt size is {final_tokens} tokens (exceeds by {final_tokens - max_length}). "
+                f"Consider: (1) reducing window_size, (2) increasing max_prompt_length, "
+                f"(3) increasing truncate_tokens_per_iter, or (4) increasing truncate_max_iters."
+            )
+
+        return truncated_texts
+
     def _rank_window(self, **kwargs) -> list[int]:
         """
         Callable wrapper for algorithms. Takes window kwargs and returns ranking order.
@@ -143,6 +223,9 @@ class GenerativeRanker(pt.Transformer):
         # Extract what we need
         doc_texts = kwargs.get('doc_text', [])
         query = kwargs.get('query', '')
+
+        # Apply truncation if enabled
+        doc_texts = self._apply_truncation(doc_texts, query)
 
         # Build prompt using existing prompt construction logic
         # The prompt methods expect docs as (index, row) iterator
@@ -194,11 +277,17 @@ class GenerativeRanker(pt.Transformer):
         if not windows_kwargs:
             return []
 
-        # Build prompts for all windows
+        # Apply truncation to all windows and build prompts
         prompts = []
+        truncated_windows = []
+
         for kwargs in windows_kwargs:
             doc_texts = kwargs.get('doc_text', [])
             query = kwargs.get('query', '')
+
+            # Apply truncation if enabled
+            doc_texts_truncated = self._apply_truncation(doc_texts, query)
+            truncated_windows.append(doc_texts_truncated)
 
             # Build prompt using existing prompt construction logic
             class DocRow:
@@ -206,13 +295,13 @@ class GenerativeRanker(pt.Transformer):
                     self.text = text
                     self._idx = idx
 
-            doc_rows = [(i, DocRow(i, text)) for i, text in enumerate(doc_texts)]
+            doc_rows = [(i, DocRow(i, text)) for i, text in enumerate(doc_texts_truncated)]
 
             prompt = self.make_prompt_from(
                 docs=doc_rows,
                 query=query,
-                num=len(doc_texts),
-                passages=doc_texts
+                num=len(doc_texts_truncated),
+                passages=doc_texts_truncated
             )
             prompts.append(prompt)
 
@@ -221,8 +310,7 @@ class GenerativeRanker(pt.Transformer):
         outputs = self.model.generate(prompts)
 
         orders = []
-        for output_text, kwargs in zip(outputs, windows_kwargs):
-            doc_texts = kwargs.get('doc_text', [])
+        for output_text, doc_texts in zip(outputs, truncated_windows):
             # Extract text from output object
             text = output_text.text
             order = self.parse_output(text, len(doc_texts))
