@@ -18,8 +18,7 @@ from pyterrier_generative._algorithms import (
 )
 from pyterrier_generative.truncation import (
     get_token_counter,
-    truncate_documents_iterative,
-    estimate_prompt_overhead
+    truncate_documents_iterative
 )
 
 class GenerativeRanker(pt.Transformer):
@@ -156,6 +155,60 @@ class GenerativeRanker(pt.Transformer):
             self._token_counter = get_token_counter(self.model)
         return self._token_counter
 
+    def _build_prompt_for_texts(self, doc_texts: list, query: str):
+        """
+        Build the actual prompt for the given documents and query.
+
+        Args:
+            doc_texts: List of document text strings
+            query: Query string
+
+        Returns:
+            The built prompt (string or list of messages)
+        """
+        # Create DocRow objects (same as in _rank_window)
+        class DocRow:
+            def __init__(self, idx, text):
+                self.text = text
+                self._idx = idx
+
+        doc_rows = [(i, DocRow(i, text)) for i, text in enumerate(doc_texts)]
+
+        # Build prompt using the same logic as _rank_window
+        prompt = self.make_prompt_from(
+            docs=doc_rows,
+            query=query,
+            num=len(doc_texts),
+            passages=doc_texts
+        )
+
+        return prompt
+
+    def _count_prompt_tokens(self, prompt, token_counter) -> int:
+        """
+        Count tokens in a prompt (handles both string and message formats).
+
+        Args:
+            prompt: Either a string or list of message dicts
+            token_counter: TokenCounter instance
+
+        Returns:
+            Total token count for the prompt
+        """
+        if isinstance(prompt, str):
+            return token_counter.count_tokens(prompt)
+        elif isinstance(prompt, list):
+            # Message format: [{'role': 'system', 'content': '...'}, ...]
+            total = 0
+            for msg in prompt:
+                content = msg.get('content', '')
+                total += token_counter.count_tokens(content)
+                # Add small overhead for message formatting (role, structure, etc.)
+                total += 4  # Approximate tokens for {"role": "...", "content": ""}
+            return total
+        else:
+            raise ValueError(f"Unknown prompt format: {type(prompt)}")
+
     def _apply_truncation(self, doc_texts: list, query: str) -> list:
         """
         Apply document truncation if enabled and necessary.
@@ -181,13 +234,15 @@ class GenerativeRanker(pt.Transformer):
         # Get token counter
         token_counter = self._get_token_counter()
 
-        # Estimate prompt overhead
-        overhead = estimate_prompt_overhead(query, len(doc_texts), token_counter)
+        # Create a callback that builds the actual prompt and counts tokens
+        def build_and_count(texts):
+            prompt = self._build_prompt_for_texts(texts, query)
+            return self._count_prompt_tokens(prompt, token_counter)
 
-        # Apply iterative truncation
+        # Apply iterative truncation with actual prompt building
         truncated_texts, success = truncate_documents_iterative(
             doc_texts=doc_texts,
-            prompt_template_overhead=overhead,
+            prompt_builder_and_counter=build_and_count,
             max_length=max_length,
             token_counter=token_counter,
             tokens_to_remove_per_iter=self.truncate_tokens_per_iter,
@@ -196,7 +251,7 @@ class GenerativeRanker(pt.Transformer):
 
         if not success:
             # Truncation failed - final prompt still exceeds max_length
-            final_tokens = sum(token_counter.count_tokens_batch(truncated_texts)) + overhead
+            final_tokens = build_and_count(truncated_texts)
             raise ValueError(
                 f"Document truncation failed to fit within max_length={max_length}. "
                 f"Final prompt size is {final_tokens} tokens (exceeds by {final_tokens - max_length}). "

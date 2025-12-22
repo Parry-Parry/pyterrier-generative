@@ -2,7 +2,7 @@
 Document truncation utilities for managing prompt lengths across different backends.
 """
 
-from typing import List, Optional, Union, Tuple
+from typing import List, Optional, Tuple
 import warnings
 
 
@@ -112,7 +112,7 @@ def get_token_counter(backend, model_id: Optional[str] = None) -> TokenCounter:
 
 def truncate_documents_iterative(
     doc_texts: List[str],
-    prompt_template_overhead: int,
+    prompt_builder_and_counter,
     max_length: int,
     token_counter: TokenCounter,
     tokens_to_remove_per_iter: int = 50,
@@ -126,9 +126,9 @@ def truncate_documents_iterative(
 
     Args:
         doc_texts: List of document text strings
-        prompt_template_overhead: Estimated token count for prompt template (query, formatting, etc.)
+        prompt_builder_and_counter: Callable that takes doc_texts and returns token count of built prompt
         max_length: Maximum allowed token count for the full prompt
-        token_counter: TokenCounter instance for counting tokens
+        token_counter: TokenCounter instance for counting tokens (used for per-doc truncation)
         tokens_to_remove_per_iter: Number of tokens to remove from each document per iteration
         max_iterations: Maximum number of iterations to prevent infinite loops
 
@@ -144,11 +144,8 @@ def truncate_documents_iterative(
     current_texts = list(doc_texts)
 
     for iteration in range(max_iterations):
-        # Count tokens for each document
-        doc_token_counts = token_counter.count_tokens_batch(current_texts)
-
-        # Calculate total tokens (documents + template overhead)
-        total_tokens = sum(doc_token_counts) + prompt_template_overhead
+        # Get actual prompt token count by building the prompt
+        total_tokens = prompt_builder_and_counter(current_texts)
 
         # Check if we're within budget
         if total_tokens <= max_length:
@@ -162,6 +159,9 @@ def truncate_documents_iterative(
                 f"Prompt exceeds max length by {excess_tokens} tokens "
                 f"({total_tokens} > {max_length}). Starting iterative truncation..."
             )
+
+        # Count tokens for each document (for per-doc truncation logic)
+        doc_token_counts = token_counter.count_tokens_batch(current_texts)
 
         # Truncate each document by removing tokens_to_remove_per_iter tokens
         new_texts = []
@@ -199,7 +199,7 @@ def truncate_documents_iterative(
         current_texts = new_texts
 
     # Reached max iterations without success
-    final_tokens = sum(token_counter.count_tokens_batch(current_texts)) + prompt_template_overhead
+    final_tokens = prompt_builder_and_counter(current_texts)
     warnings.warn(
         f"Reached max iterations ({max_iterations}) without fitting within token budget. "
         f"Final prompt has {final_tokens} tokens (max: {max_length})."

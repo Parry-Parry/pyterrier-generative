@@ -56,8 +56,7 @@ def test_truncation_algorithm():
 
     from pyterrier_generative.truncation import (
         TiktokenCounter,
-        truncate_documents_iterative,
-        estimate_prompt_overhead
+        truncate_documents_iterative
     )
 
     # Create test documents
@@ -79,12 +78,21 @@ def test_truncation_algorithm():
         # Count original tokens
         original_counts = counter.count_tokens_batch(doc_texts)
         original_total = sum(original_counts)
-        overhead = estimate_prompt_overhead(query, len(doc_texts), counter)
+
+        # Create a simple prompt builder that simulates a template
+        def build_and_count(texts):
+            # Simulate a prompt template like RANKPROMPT
+            prompt = f"Query: {query}\n\n"
+            for i, text in enumerate(texts):
+                prompt += f"[{i+1}] {text}\n"
+            prompt += f"\nRank the {len(texts)} passages based on the query."
+            return counter.count_tokens(prompt)
+
+        original_prompt_tokens = build_and_count(doc_texts)
 
         print(f"   Original token counts per doc: {original_counts}")
         print(f"   Original total (docs only): {original_total}")
-        print(f"   Estimated overhead: {overhead}")
-        print(f"   Original total (with overhead): {original_total + overhead}")
+        print(f"   Original total (with prompt): {original_prompt_tokens}")
 
         # Set a tight limit to force truncation
         max_length = 1000
@@ -93,7 +101,7 @@ def test_truncation_algorithm():
         # Apply truncation
         truncated_texts, success = truncate_documents_iterative(
             doc_texts=doc_texts,
-            prompt_template_overhead=overhead,
+            prompt_builder_and_counter=build_and_count,
             max_length=max_length,
             token_counter=counter,
             tokens_to_remove_per_iter=50,
@@ -103,11 +111,12 @@ def test_truncation_algorithm():
         # Count truncated tokens
         truncated_counts = counter.count_tokens_batch(truncated_texts)
         truncated_total = sum(truncated_counts)
+        final_prompt_tokens = build_and_count(truncated_texts)
 
         print(f"\n   Truncation {'succeeded' if success else 'failed'}!")
         print(f"   Truncated token counts per doc: {truncated_counts}")
         print(f"   Truncated total (docs only): {truncated_total}")
-        print(f"   Final total (with overhead): {truncated_total + overhead}")
+        print(f"   Final total (with prompt): {final_prompt_tokens}")
 
         # Verify each doc was truncated
         for i, (orig, trunc) in enumerate(zip(doc_texts, truncated_texts)):
@@ -116,11 +125,11 @@ def test_truncation_algorithm():
             else:
                 print(f"   - Doc {i+1} unchanged")
 
-        if success and (truncated_total + overhead) <= max_length:
+        if success and final_prompt_tokens <= max_length:
             print("   ✓ Truncation algorithm works correctly!")
             return True
         else:
-            print(f"   ✗ Final length {truncated_total + overhead} still exceeds {max_length}")
+            print(f"   ✗ Final length {final_prompt_tokens} still exceeds {max_length}")
             return False
 
     except Exception as e:
