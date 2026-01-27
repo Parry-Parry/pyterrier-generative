@@ -330,7 +330,10 @@ Contributions welcome! Please:
 
 | Version | Date       | Changes                                        |
 |--------:|------------|------------------------------------------------|
-|     0.1 | 2025-01-14 | Initial release with batching and 4 algorithms |
+|     0.1.3 | 2025-12-22 | Allow Truncation of Documents |
+|     0.1.2 | 2025-12-17 | Bug Fixes |
+|     0.1.1 | 2025-12-14 | Bug Fixes |
+|     0.1 | 2025-12-14 | Initial release with batching and 4 algorithms |
 
 ## 📄 License
 
