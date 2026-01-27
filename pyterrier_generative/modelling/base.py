@@ -199,13 +199,42 @@ class GenerativeRanker(pt.Transformer):
             return token_counter.count_tokens(prompt)
         elif isinstance(prompt, list):
             # Message format: [{'role': 'system', 'content': '...'}, ...]
-            total = 0
-            for msg in prompt:
-                content = msg.get('content', '')
-                total += token_counter.count_tokens(content)
-                # Add small overhead for message formatting (role, structure, etc.)
-                total += 4  # Approximate tokens for {"role": "...", "content": ""}
-            return total
+            # Use the backend's tokenizer to get exact count with chat template
+            from pyterrier_generative.truncation import HuggingFaceCounter, TiktokenCounter
+
+            if isinstance(token_counter, HuggingFaceCounter):
+                # Use apply_chat_template for exact token count
+                tokenizer = token_counter.tokenizer
+                if hasattr(tokenizer, 'apply_chat_template'):
+                    formatted = tokenizer.apply_chat_template(
+                        prompt,
+                        tokenize=True,
+                        add_generation_prompt=True
+                    )
+                    return len(formatted)
+
+            elif isinstance(token_counter, TiktokenCounter):
+                # For OpenAI, use tiktoken's chat format counting
+                # Based on OpenAI's token counting guide
+                encoding = token_counter.encoding
+                num_tokens = 0
+                for msg in prompt:
+                    num_tokens += 4  # <im_start>{role}\n ... <im_end>\n
+                    for key, value in msg.items():
+                        num_tokens += len(encoding.encode(value))
+                        if key == "name":
+                            num_tokens -= 1  # role is omitted if name present
+                num_tokens += 2  # <im_start>assistant
+                return num_tokens
+
+            # No exact token counting available - warn and disable truncation
+            import warnings
+            warnings.warn(
+                "Cannot perform exact token counting for message format prompts with this backend. "
+                "Truncation requires HuggingFace tokenizer with apply_chat_template or tiktoken. "
+                "Disabling truncation for this prompt."
+            )
+            return 0  # Return 0 to skip truncation (will always be under max_length)
         else:
             raise ValueError(f"Unknown prompt format: {type(prompt)}")
 
