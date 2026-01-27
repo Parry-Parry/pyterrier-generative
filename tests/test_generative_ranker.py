@@ -11,8 +11,17 @@ from pyterrier_generative._algorithms import Algorithm
 try:
     import torch
     CUDA_AVAILABLE = torch.cuda.is_available()
+    MPS_AVAILABLE = (
+        torch.backends.mps.is_available()
+        if hasattr(torch.backends, 'mps') else False
+    )
+    GPU_AVAILABLE = CUDA_AVAILABLE or MPS_AVAILABLE
 except ImportError:
     CUDA_AVAILABLE = False
+    MPS_AVAILABLE = False
+    GPU_AVAILABLE = False
+
+SMALL_MODEL_ID = "sshleifer/tiny-gpt2"
 
 
 # Note: These tests check the configuration and initialization
@@ -59,20 +68,20 @@ class TestStandardRankerInit:
             # Expected without API key
             pass
 
-    @pytest.mark.skipif(not CUDA_AVAILABLE, reason="CUDA not available")
-    def test_backend_autodetect_vllm(self):
-        """Test backend auto-detection for HF models."""
-        # Note: This will fail if vllm is not installed, but tests the logic
+    @pytest.mark.skipif(not GPU_AVAILABLE, reason="GPU not available")
+    def test_backend_explicit_hf(self):
+        """Test explicit HuggingFace backend for HF models."""
         try:
             ranker = StandardRanker(
-                'castorini/rank_zephyr_7b_v1_full',
+                SMALL_MODEL_ID,
+                backend='hf',
                 max_new_tokens=10,
                 verbose=False
             )
-            assert ranker.backend_type == 'vllm'
-            assert ranker.model_id == 'castorini/rank_zephyr_7b_v1_full'
+            assert ranker.backend_type == 'hf'
+            assert ranker.model_id == SMALL_MODEL_ID
         except ImportError:
-            pytest.skip("vLLM not available")
+            pytest.skip("HuggingFace transformers not available")
 
     def test_backend_autodetect_openai(self):
         """Test backend auto-detection for OpenAI models."""
@@ -89,26 +98,12 @@ class TestStandardRankerInit:
             # Expected without API key
             pass
 
-    @pytest.mark.skipif(not CUDA_AVAILABLE, reason="CUDA not available")
-    def test_explicit_backend_vllm(self):
-        """Test explicit vLLM backend specification."""
-        try:
-            ranker = StandardRanker(
-                'custom/model',
-                backend='vllm',
-                max_new_tokens=10,
-                verbose=False
-            )
-            assert ranker.backend_type == 'vllm'
-        except ImportError:
-            pytest.skip("vLLM not available")
-
-    @pytest.mark.skipif(not CUDA_AVAILABLE, reason="CUDA not available")
+    @pytest.mark.skipif(not GPU_AVAILABLE, reason="GPU not available")
     def test_explicit_backend_hf(self):
         """Test explicit HuggingFace backend specification."""
         try:
             ranker = StandardRanker(
-                'custom/model',
+                SMALL_MODEL_ID,
                 backend='hf',
                 max_new_tokens=10,
                 verbose=False
@@ -151,61 +146,71 @@ class TestStandardRankerInit:
             # Expected without API key
             pass
 
-    @pytest.mark.skipif(not CUDA_AVAILABLE, reason="CUDA not available")
+    @pytest.mark.skipif(not GPU_AVAILABLE, reason="GPU not available")
     def test_repr_variant(self):
         """Test repr for known variant."""
         try:
-            ranker = RankZephyr.v1(
+            ranker = RankZephyr(
+                SMALL_MODEL_ID,
+                backend='hf',
                 max_new_tokens=10,
                 verbose=False
             )
             repr_str = repr(ranker)
-            assert 'RankZephyr.v1()' == repr_str
+            assert SMALL_MODEL_ID in repr_str
+            assert "backend='hf'" in repr_str
         except ImportError:
-            pytest.skip("vLLM not available")
+            pytest.skip("HuggingFace transformers not available")
 
-    @pytest.mark.skipif(not CUDA_AVAILABLE, reason="CUDA not available")
+    @pytest.mark.skipif(not GPU_AVAILABLE, reason="GPU not available")
     def test_repr_custom_model(self):
         """Test repr for custom model."""
         try:
             ranker = RankGPT(
-                'custom/model',
-                backend='vllm',
+                SMALL_MODEL_ID,
+                backend='hf',
                 algorithm=Algorithm.SLIDING_WINDOW,
                 window_size=10,
                 max_new_tokens=10,
                 verbose=False
             )
             repr_str = repr(ranker)
-            assert 'custom/model' in repr_str
-            assert 'vllm' in repr_str
+            assert SMALL_MODEL_ID in repr_str
+            assert 'hf' in repr_str
             assert 'sliding_window' in repr_str
             assert 'window_size=10' in repr_str
         except ImportError:
-            pytest.skip("vLLM not available")
+            pytest.skip("HuggingFace transformers not available")
 
 
 class TestRankZephyr:
     """Test RankZephyr class."""
 
-    @pytest.mark.skipif(not CUDA_AVAILABLE, reason="CUDA not available")
+    @pytest.mark.skipif(not GPU_AVAILABLE, reason="GPU not available")
     def test_rankzephyr_v1_variant(self):
-        """Test that RankZephyr.v1() creates ranker with correct model."""
+        """Test that RankZephyr creates ranker with correct model."""
         try:
-            ranker = RankZephyr.v1(max_new_tokens=10, verbose=False)
-            assert ranker.model_id == 'castorini/rank_zephyr_7b_v1_full'
-            assert ranker.backend_type == 'vllm'
+            ranker = RankZephyr(
+                SMALL_MODEL_ID,
+                backend='hf',
+                max_new_tokens=10,
+                verbose=False
+            )
+            assert ranker.model_id == SMALL_MODEL_ID
+            assert ranker.backend_type == 'hf'
         except ImportError:
-            pytest.skip("vLLM not available")
+            pytest.skip("HuggingFace transformers not available")
 
-    @pytest.mark.skipif(not CUDA_AVAILABLE, reason="CUDA not available")
+    @pytest.mark.skipif(not GPU_AVAILABLE, reason="GPU not available")
     def test_rankzephyr_with_parameters(self):
         """Test RankZephyr with custom parameters."""
         try:
-            ranker = RankZephyr.v1(
+            ranker = RankZephyr(
+                SMALL_MODEL_ID,
                 window_size=15,
                 stride=8,
                 algorithm=Algorithm.SLIDING_WINDOW,
+                backend='hf',
                 max_new_tokens=10,
                 verbose=False
             )
@@ -213,13 +218,18 @@ class TestRankZephyr:
             assert ranker.stride == 8
             assert ranker.algorithm == Algorithm.SLIDING_WINDOW
         except ImportError:
-            pytest.skip("vLLM not available")
+            pytest.skip("HuggingFace transformers not available")
 
-    @pytest.mark.skipif(not CUDA_AVAILABLE, reason="CUDA not available")
+    @pytest.mark.skipif(not GPU_AVAILABLE, reason="GPU not available")
     def test_rankzephyr_backend_override(self):
         """Test RankZephyr with backend override."""
         try:
-            ranker = RankZephyr.v1(backend='hf', max_new_tokens=10, verbose=False)
+            ranker = RankZephyr(
+                SMALL_MODEL_ID,
+                backend='hf',
+                max_new_tokens=10,
+                verbose=False
+            )
             assert ranker.backend_type == 'hf'
         except ImportError:
             pytest.skip("HuggingFace transformers not available")
@@ -228,24 +238,31 @@ class TestRankZephyr:
 class TestRankVicuna:
     """Test RankVicuna class."""
 
-    @pytest.mark.skipif(not CUDA_AVAILABLE, reason="CUDA not available")
+    @pytest.mark.skipif(not GPU_AVAILABLE, reason="GPU not available")
     def test_rankvicuna_v1_variant(self):
-        """Test that RankVicuna.v1() creates ranker with correct model."""
+        """Test that RankVicuna creates ranker with correct model."""
         try:
-            ranker = RankVicuna.v1(max_new_tokens=10, verbose=False)
-            assert ranker.model_id == 'castorini/rank_vicuna_7b_v1'
-            assert ranker.backend_type == 'vllm'
+            ranker = RankVicuna(
+                SMALL_MODEL_ID,
+                backend='hf',
+                max_new_tokens=10,
+                verbose=False
+            )
+            assert ranker.model_id == SMALL_MODEL_ID
+            assert ranker.backend_type == 'hf'
         except ImportError:
-            pytest.skip("vLLM not available")
+            pytest.skip("HuggingFace transformers not available")
 
-    @pytest.mark.skipif(not CUDA_AVAILABLE, reason="CUDA not available")
+    @pytest.mark.skipif(not GPU_AVAILABLE, reason="GPU not available")
     def test_rankvicuna_with_parameters(self):
         """Test RankVicuna with custom parameters."""
         try:
-            ranker = RankVicuna.v1(
+            ranker = RankVicuna(
+                SMALL_MODEL_ID,
                 window_size=12,
                 algorithm=Algorithm.TDPART,
                 cutoff=5,
+                backend='hf',
                 max_new_tokens=10,
                 verbose=False
             )
@@ -253,7 +270,7 @@ class TestRankVicuna:
             assert ranker.algorithm == Algorithm.TDPART
             assert ranker.cutoff == 5
         except ImportError:
-            pytest.skip("vLLM not available")
+            pytest.skip("HuggingFace transformers not available")
 
 
 class TestRankGPT:

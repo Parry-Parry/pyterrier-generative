@@ -58,15 +58,9 @@ def initialize_tdpart_queries(model, inp: pd.DataFrame):
 def build_model_kwargs(qid, state, window):
     """
     Build kwargs dict for model call from query state and window.
-
-    Args:
-        qid: Query ID
-        state: Query state dict
-        window: RankedList window to rank
-
-    Returns:
-        Dict with model call arguments
+    Uses array views to avoid copying, converts to list only at boundary.
     """
+    # window is a RankedList already; use its underlying arrays directly
     return {
         'qid': qid,
         'query': state['query'],
@@ -81,44 +75,46 @@ def build_model_kwargs(qid, state, window):
 def take_next_subwindow(state):
     """
     Extract next (window_size - 1) docs from state['remainder'].
-    Updates state['remainder'] in place.
-
-    Args:
-        state: Query state dict
-
-    Returns:
-        RankedList of next sub-window
+    Uses a cursor to avoid repeated slice-copy operations.
     """
     sub_window_size = state['window_size'] - 1
-    remainder = state['remainder']
 
-    if len(remainder) == 0:
+    # Initialise cursor once
+    if 'remainder_cursor' not in state:
+        state['remainder_cursor'] = 0
+
+    remainder = state['remainder']
+    cursor = state['remainder_cursor']
+
+    if cursor >= len(remainder):
         return RankedList()
 
-    # Take up to sub_window_size docs
-    take = min(sub_window_size, len(remainder))
-    sub_window = remainder[:take]
-    state['remainder'] = remainder[take:]
+    take = min(sub_window_size, len(remainder) - cursor)
+
+    # Use views to build a RankedList window without slicing the RankedList itself
+    idx_view, txt_view = remainder.view(cursor, cursor + take)
+    sub_window = RankedList(idx_view.copy(), txt_view.copy())
+
+    state['remainder_cursor'] = cursor + take
+
+    # When exhausted, clear remainder to keep other logic unchanged
+    if state['remainder_cursor'] >= len(remainder):
+        state['remainder'] = RankedList()
+        state['remainder_cursor'] = 0
 
     return sub_window
 
 
-def apply_order(window, order):
+def apply_order_inplace(window: RankedList, order) -> RankedList:
     """
-    Apply ranking order to a RankedList window.
-
-    Args:
-        window: RankedList to reorder
-        order: Array of indices representing new order
+    Apply ranking order to a RankedList window IN PLACE using fast slice permutation.
 
     Returns:
-        Reordered RankedList
+        The same window object, reordered.
     """
     order = np.asarray(order)
-    orig = np.arange(len(window))
-    result = RankedList(window.doc_idx.copy(), window.doc_texts.copy())
-    result[orig] = result[order]
-    return result
+    window.permute_window_inplace(0, len(window), order)
+    return window
 
 
 def find_pivot_in_window(sorted_window, pivot_id):
@@ -145,6 +141,9 @@ def check_and_update_query_state(state, iteration):
         state: Query state dict
         iteration: Current iteration number
     """
+    # Drop any already-consumed remainder so we don't double-count it later.
+    _flush_remainder_cursor(state)
+
     candidates = state['candidates']
     pivot_pos = state['pivot_pos']
     buffer = state['buffer']
@@ -226,6 +225,8 @@ def convert_tdpart_states_to_windows(queries_state):
     all_windows = []
 
     for qid, state in queries_state.items():
+        # Ensure remainder reflects only unconsumed docs before final assembly.
+        _flush_remainder_cursor(state)
         # Assemble final ranking: candidates + backfill_accumulator + any remaining
         final_ranking = state['candidates']
         if state['pivot'] is not None:
@@ -244,6 +245,23 @@ def convert_tdpart_states_to_windows(queries_state):
         })
 
     return all_windows
+
+
+def _flush_remainder_cursor(state):
+    """
+    Trim already-consumed remainder based on remainder_cursor.
+
+    This avoids duplicating documents when assembling final rankings.
+    """
+    cursor = int(state.get('remainder_cursor', 0))
+    if cursor <= 0:
+        return
+    remainder = state.get('remainder')
+    if remainder is None or len(remainder) == 0:
+        state['remainder_cursor'] = 0
+        return
+    state['remainder'] = remainder[cursor:]
+    state['remainder_cursor'] = 0
 
 
 def collect_tdpart_windows_for_batching(queries_state, phase='pivot'):
@@ -278,6 +296,7 @@ def collect_tdpart_windows_for_batching(queries_state, phase='pivot'):
             if state['phase'] == 'growing':
                 # Can this query produce more windows?
                 # Check: not over budget, has remaining docs
+                local_cursor = int(state.get('remainder_cursor', 0))
                 while (len(state['candidates']) < state['buffer'] and
                        len(state['remainder']) > 0):
 
@@ -292,10 +311,20 @@ def collect_tdpart_windows_for_batching(queries_state, phase='pivot'):
                         state['budget_warning'] = True
 
                     # Take next sub-window + pivot
-                    sub_window = take_next_subwindow(state)
-                    if len(sub_window) == 0:
+                    if 'remainder_cursor' not in state:
+                        state['remainder_cursor'] = 0
+
+                    cursor = local_cursor
+                    remaining = len(state['remainder'])
+                    sub_window_size = state['window_size'] - 1
+
+                    take = min(sub_window_size, remaining - cursor)
+                    if take <= 0:
                         break
 
+                    # Build a concrete window now (copy), but do NOT advance cursor yet
+                    idx_view, txt_view = state['remainder'].view(cursor, cursor + take)
+                    sub_window = RankedList(idx_view.copy(), txt_view.copy())
                     window = state['pivot'] + sub_window
 
                     windows.append({
@@ -303,9 +332,12 @@ def collect_tdpart_windows_for_batching(queries_state, phase='pivot'):
                         'window': window,
                         'kwargs': build_model_kwargs(qid, state, window),
                         'type': 'grow',
-                        'sub_window_idx': state['next_window_idx']
+                        'sub_window_idx': state['next_window_idx'],
+                        'remainder_start': cursor,
+                        'remainder_take': take,
                     })
                     state['next_window_idx'] += 1
+                    local_cursor = cursor + take
 
                     # If budget warning set, stop collecting more windows from this query
                     if state.get('budget_warning', False):
@@ -329,7 +361,7 @@ def apply_tdpart_batched_results(windows_data, orders, queries_state):
         window = window_data['window']
 
         # Apply ordering
-        sorted_window = apply_order(window, order)
+        sorted_window = apply_order_inplace(window, order)
 
         if window_data['type'] == 'pivot':
             # Initial pivot finding
@@ -352,6 +384,13 @@ def apply_tdpart_batched_results(windows_data, orders, queries_state):
             # Check budget (mark for trimming, don't trim immediately)
             if len(state['candidates']) >= state['buffer']:
                 finalize_query_iteration(state)
+            
+            take = int(window_data.get('remainder_take', 0))
+            if take > 0:
+                state['remainder_cursor'] = int(window_data['remainder_start']) + take
+                if state['remainder_cursor'] >= len(state['remainder']):
+                    state['remainder'] = RankedList()
+                    state['remainder_cursor'] = 0
 
 
 def tdpart_batched_iteration(model, queries_state, iteration):
@@ -449,10 +488,8 @@ def tdpart_final_collation_batched(model, queries_state):
             candidates = window_data['window']
 
             # Apply ordering to get final ranked candidates
-            sorted_candidates = apply_order(candidates, order)
-
-            # Update state with re-ranked candidates
-            state['candidates'] = sorted_candidates
+            apply_order_inplace(candidates, order)
+            state['candidates'] = candidates
 
 
 def _tdpart_pivot_pos(model) -> int:
@@ -507,8 +544,7 @@ def _tdpart_step(model, qid: str, query: str, ranking: "RankedList"):
         "window_len": len(current_window),
     }
     order = np.asarray(model(**kwargs))
-    orig = np.arange(len(current_window))
-    current_window[orig] = current_window[order]
+    current_window.permute_window_inplace(0, len(current_window), order)
 
     # If we never filled a full window, a single sort is enough
     if len(current_window) < window_size:
@@ -538,8 +574,7 @@ def _tdpart_step(model, qid: str, query: str, ranking: "RankedList"):
             "window_len": len(next_window),
         }
         order = np.asarray(model(**kwargs))
-        orig = np.arange(len(next_window))
-        next_window[orig] = next_window[order]
+        next_window.permute_window_inplace(0, len(next_window), order)
 
         # Find pivot location after sort
         # (p is length-1 RankedList; compare underlying id)

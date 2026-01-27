@@ -3,8 +3,7 @@
 import pandas as pd
 import numpy as np
 
-from pyterrier_generative.algorithms.common import RankedList, iter_windows
-
+from pyterrier_generative.algorithms.common import RankedList, iter_windows_cached
 
 def sliding_window(model, query: str, query_results: pd.DataFrame):
     """
@@ -19,20 +18,21 @@ def sliding_window(model, query: str, query_results: pd.DataFrame):
     ranking = RankedList(doc_idx, doc_texts)
 
     # Process each window sequentially
-    for start_idx, end_idx, window_len in iter_windows(len(query_results), model.window_size, model.stride):
+    for start_idx, end_idx, window_len in iter_windows_cached(len(query_results), model.window_size, model.stride):
+        doc_idx_view, doc_text_view = ranking.view(start_idx, end_idx)
+
         kwargs = {
             'qid': qid,
             'query': query,
-            'doc_text': ranking[start_idx:end_idx].doc_texts.tolist(),
-            'doc_idx': ranking[start_idx:end_idx].doc_idx.tolist(),
+            'doc_text': doc_text_view.tolist(),
+            'doc_idx': doc_idx_view.tolist(),
             'start_idx': start_idx,
             'end_idx': end_idx,
             'window_len': window_len
         }
-        order = np.array(model(**kwargs))
-        new_idxs = start_idx + order
-        orig_idxs = np.arange(start_idx, end_idx)
-        ranking[orig_idxs] = ranking[new_idxs]
+
+        order = np.asarray(model(**kwargs))
+        ranking.permute_window_inplace(start_idx, end_idx, order)
 
     return ranking.doc_idx, ranking.doc_texts
 
@@ -65,14 +65,13 @@ def initialize_sliding_window_queries(model, inp: pd.DataFrame):
         ranking = RankedList(doc_idx, doc_texts)
 
         # Precompute all window positions for this query
-        window_positions = list(iter_windows(len(query_results), model.window_size, model.stride))
+        window_positions = iter_windows_cached(len(query_results), model.window_size, model.stride)
 
         queries_state[qid] = {
             'qid': qid,
             'query': query,
             'ranking': ranking,
             'window_positions': window_positions,
-            'current_window_idx': 0,
             'total_windows': len(window_positions)
         }
 
@@ -99,13 +98,13 @@ def collect_sliding_window_batch(queries_state, window_idx):
 
             # Extract window content from CURRENT ranking state
             ranking = state['ranking']
-            window_docs = ranking[start_idx:end_idx]
+            doc_idx_view, doc_text_view = ranking.view(start_idx, end_idx)
 
             kwargs = {
                 'qid': qid,
                 'query': state['query'],
-                'doc_text': window_docs.doc_texts.tolist(),
-                'doc_idx': window_docs.doc_idx.tolist(),
+                'doc_text': doc_text_view.tolist(),
+                'doc_idx': doc_idx_view.tolist(),
                 'start_idx': start_idx,
                 'end_idx': end_idx,
                 'window_len': window_len
@@ -138,12 +137,8 @@ def apply_sliding_window_batch_results(windows_data, orders, queries_state):
 
         start_idx = window_data['start_idx']
         end_idx = window_data['end_idx']
-        order = np.array(order)
-
-        # Apply reordering within the window
-        new_idxs = start_idx + order
-        orig_idxs = np.arange(start_idx, end_idx)
-        ranking[orig_idxs] = ranking[new_idxs]
+        order = np.asarray(order)
+        ranking.permute_window_inplace(start_idx, end_idx, order)
 
 
 def sliding_window_batched_iteration(model, queries_state):
@@ -176,6 +171,9 @@ def sliding_window_batched_iteration(model, queries_state):
         # Backend handles its own batch size management
         kwargs_list = [w['kwargs'] for w in windows]
         orders = model._rank_windows_batch(kwargs_list)
+
+        if len(orders) != len(windows):
+            raise ValueError(f"Batch returned {len(orders)} orders for {len(windows)} windows")
 
         # Apply results back to query states
         apply_sliding_window_batch_results(windows, orders, queries_state)
