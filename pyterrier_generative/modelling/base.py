@@ -49,7 +49,7 @@ class GenerativeRanker(pt.Transformer):
         k: int = 10,
         max_iters: int = 10,
         # Document truncation parameters
-        truncate_docs: bool = False,
+        truncate_docs: bool = True,
         max_prompt_length: Optional[int] = None,
         truncate_tokens_per_iter: int = 50,
         truncate_max_iters: int = 100
