@@ -52,7 +52,6 @@ class GenerativeRanker(pt.Transformer):
         truncate_docs: bool = True,
         max_prompt_length: Optional[int] = None,
         truncate_tokens_per_iter: int = 50,
-        truncate_max_iters: int = 100
     ):
         """
         Initializes the GenerativeRanker with the specified model name.
@@ -71,7 +70,6 @@ class GenerativeRanker(pt.Transformer):
             truncate_docs (bool): Enable automatic document truncation when prompts exceed max length.
             max_prompt_length (int, optional): Maximum prompt length in tokens. If None, uses backend's max_input_length.
             truncate_tokens_per_iter (int): Number of tokens to remove per document per iteration.
-            truncate_max_iters (int): Maximum truncation iterations before giving up.
         """
         self.model = model
         self.prompt = prompt if callable(prompt) else jinja_formatter(prompt)
@@ -93,7 +91,6 @@ class GenerativeRanker(pt.Transformer):
         self.truncate_docs = truncate_docs
         self.max_prompt_length = max_prompt_length
         self.truncate_tokens_per_iter = truncate_tokens_per_iter
-        self.truncate_max_iters = truncate_max_iters
 
         # Initialize token counter lazily (only if truncation is enabled)
         self._token_counter = None
@@ -287,7 +284,6 @@ class GenerativeRanker(pt.Transformer):
             max_length=max_length,
             token_counter=token_counter,
             tokens_to_remove_per_iter=self.truncate_tokens_per_iter,
-            max_iterations=self.truncate_max_iters
         )
 
         if not success:
@@ -297,7 +293,7 @@ class GenerativeRanker(pt.Transformer):
                 f"Document truncation failed to fit within max_length={max_length}. "
                 f"Final prompt size is {final_tokens} tokens (exceeds by {final_tokens - max_length}). "
                 f"Consider: (1) reducing window_size, (2) increasing max_prompt_length, "
-                f"(3) increasing truncate_tokens_per_iter, or (4) increasing truncate_max_iters."
+                f"or (3) increasing truncate_tokens_per_iter."
             )
 
         return truncated_texts

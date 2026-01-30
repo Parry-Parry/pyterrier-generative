@@ -105,7 +105,6 @@ def test_truncation_algorithm():
             max_length=max_length,
             token_counter=counter,
             tokens_to_remove_per_iter=50,
-            max_iterations=100
         )
 
         # Count truncated tokens
