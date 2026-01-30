@@ -99,8 +99,8 @@ class DeterministicBackend:
             matches = re.findall(r'\[(\d+)\]', prompt)
             n = len(matches)
 
-            # Return reverse order: N, N-1, ..., 1
-            ranking = " ".join(str(i) for i in range(n, 0, -1))
+            # Return reverse order: [N] > [N-1] > ... > [1]
+            ranking = " > ".join(f"[{i}]" for i in range(n, 0, -1))
             outputs.append(GenerationOutput(ranking))
 
         return outputs

@@ -37,7 +37,7 @@ class DeterministicBackend:
         """
         Generate deterministic rankings.
 
-        Returns ranking as "1 2 3 4 ..." or "N ... 3 2 1"
+        Returns ranking as "[1] > [2] > [3] > ..." or "[N] > ... > [2] > [1]"
         """
         self.generate_calls.append(len(prompts))
         outputs = []
@@ -50,10 +50,10 @@ class DeterministicBackend:
 
             if self.reverse:
                 # Return reverse order
-                ranking = " ".join(str(i) for i in range(num_passages, 0, -1))
+                ranking = " > ".join(f"[{i}]" for i in range(num_passages, 0, -1))
             else:
                 # Return sequential order
-                ranking = " ".join(str(i) for i in range(1, num_passages + 1))
+                ranking = " > ".join(f"[{i}]" for i in range(1, num_passages + 1))
 
             outputs.append(GenerationOutput(ranking))
 
@@ -91,10 +91,10 @@ class MessageBackend(DeterministicBackend):
 
             if self.reverse:
                 # Return reverse order
-                ranking = " ".join(str(i) for i in range(num_passages, 0, -1))
+                ranking = " > ".join(f"[{i}]" for i in range(num_passages, 0, -1))
             else:
                 # Return sequential order
-                ranking = " ".join(str(i) for i in range(1, num_passages + 1))
+                ranking = " > ".join(f"[{i}]" for i in range(1, num_passages + 1))
 
             outputs.append(GenerationOutput(ranking))
 
@@ -319,7 +319,7 @@ class TestOutputParsing:
             algorithm=Algorithm.SINGLE_WINDOW
         )
 
-        order = ranker.parse_output("5 4 3 2 1", length=5)
+        order = ranker.parse_output("[5] > [4] > [3] > [2] > [1]", length=5)
         assert order == [4, 3, 2, 1, 0]
 
     def test_parse_with_duplicates(self):
@@ -332,7 +332,7 @@ class TestOutputParsing:
         )
 
         # Duplicates should be removed (first occurrence kept)
-        order = ranker.parse_output("1 2 2 3 1 4", length=5)
+        order = ranker.parse_output("[1] > [2] > [2] > [3] > [1] > [4]", length=5)
         assert len(order) == 5
         assert len(set(order)) == 5  # All unique after backfill
 
@@ -346,7 +346,7 @@ class TestOutputParsing:
         )
 
         # Missing indices should be backfilled
-        order = ranker.parse_output("1 3 5", length=5)
+        order = ranker.parse_output("[1] > [3] > [5]", length=5)
         assert len(order) == 5
         assert 0 in order  # 1-indexed becomes 0
         assert 2 in order  # 3-indexed becomes 2
@@ -361,7 +361,7 @@ class TestOutputParsing:
             algorithm=Algorithm.SINGLE_WINDOW
         )
 
-        # Should extract only numbers
+        # Should extract only bracketed numbers
         order = ranker.parse_output("The ranking is: [1], [2], [3]", length=3)
         assert order == [0, 1, 2]
 
@@ -375,7 +375,7 @@ class TestOutputParsing:
         )
 
         # Out of range indices should be filtered out
-        order = ranker.parse_output("1 2 10 20 3", length=5)
+        order = ranker.parse_output("[1] > [2] > [10] > [20] > [3]", length=5)
         assert len(order) == 5
         assert 9 not in order  # 10-indexed
         assert 19 not in order  # 20-indexed

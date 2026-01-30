@@ -143,10 +143,22 @@ class GenerativeRanker(pt.Transformer):
                 return content
 
     def parse_output(self, output : str, length : int) -> list[int]:
-        output = re.sub(r'[^0-9]', ' ', output) # clean outputs (keep only digits)
-        output = [int(x)-1 for x in output.split()] # convert to integer
-        output = list({x: 0 for x in output if 0 <= x < length}.keys()) # remove duplicates (but keep order) and remove anything out of range
-        order = output + [i for i in range(length) if i not in output] # backfill missing passages
+        # Extract indices from bracketed format [n] using regex (matches rank_llm behavior)
+        matches = re.findall(r'\[(\d+)\]', output)
+
+        # Convert to 0-indexed integers
+        indices = [int(x) - 1 for x in matches]
+
+        # Remove duplicates (keep first occurrence) and filter out-of-range values
+        seen = set()
+        parsed = []
+        for idx in indices:
+            if 0 <= idx < length and idx not in seen:
+                seen.add(idx)
+                parsed.append(idx)
+
+        # Keep original order for missing passages
+        order = parsed + [i for i in range(length) if i not in seen]
         return order
 
     def _get_token_counter(self):

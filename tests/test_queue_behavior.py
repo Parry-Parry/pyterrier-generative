@@ -84,7 +84,7 @@ class PositionalBiasBackend:
                 adjusted.sort(reverse=True)
                 ranking = [i + 1 for _, i in adjusted]
 
-            ranking_text = " ".join(str(i) for i in ranking)
+            ranking_text = " > ".join(f"[{i}]" for i in ranking)
             outputs.append(GenerationOutput(ranking_text))
 
         return outputs
@@ -134,7 +134,7 @@ class CallTrackingBackend:
         outputs = []
         for info in window_info:
             n = info['num_docs']
-            ranking = " ".join(str(i) for i in range(n, 0, -1))
+            ranking = " > ".join(f"[{i}]" for i in range(n, 0, -1))
             outputs.append(GenerationOutput(ranking))
 
         return outputs

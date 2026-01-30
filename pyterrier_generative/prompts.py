@@ -10,4 +10,4 @@ I will provide you with {{ num }} passages, each indicated by a numerical identi
 {% endfor %}
 
 Search Query: {{ query }}.
-Rank the {{ num }} passages above based on their relevance to the search query. All the passages should be included and listed using identifiers, in descending order of relevance. The output format should be [] > [], e.g., [4] > [2]. Only respond with the ranking results, do not say any word or explain."""
+Rank the {{ num }} passages above based on their relevance to the search query. All the passages should be included and listed using identifiers, in descending order of relevance. The output format should be [] > [], e.g., [2] > [1], Answer concisely and directly and only respond with the ranking results, do not say any word or explain."""
