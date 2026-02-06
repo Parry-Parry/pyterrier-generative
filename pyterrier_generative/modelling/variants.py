@@ -97,20 +97,28 @@ class _GenerativeRanker(GenerativeRanker, metaclass=Variants):
         # Select and initialize backend
         if backend == 'vllm':
             from pyterrier_rag.backend import VLLMBackend
+            # Default generation args for ranking (greedy decoding)
+            default_generation_args = {'temperature': 0.0}
+            if generation_args:
+                default_generation_args.update(generation_args)
             backend_instance = VLLMBackend(
                 model_id=model_id,
                 model_args=model_args or {},
-                generation_args=generation_args,
+                generation_args=default_generation_args,
                 max_new_tokens=max_new_tokens,
                 verbose=verbose,
                 **extra_kwargs,
             )
         elif backend == 'hf':
             from pyterrier_rag.backend import HuggingFaceBackend
+            # Default generation args for ranking (greedy decoding)
+            default_generation_args = {'do_sample': False}
+            if generation_args:
+                default_generation_args.update(generation_args)
             backend_instance = HuggingFaceBackend(
                 model_id=model_id,
                 model_args=model_args or {},
-                generation_args=generation_args,
+                generation_args=default_generation_args,
                 max_new_tokens=max_new_tokens,
                 device=device,
                 verbose=verbose,
@@ -118,9 +126,13 @@ class _GenerativeRanker(GenerativeRanker, metaclass=Variants):
             )
         elif backend == 'openai':
             from pyterrier_rag.backend import OpenAIBackend
+            # Default generation args for ranking (greedy decoding)
+            default_generation_args = {'temperature': 0.0}
+            if generation_args:
+                default_generation_args.update(generation_args)
             backend_instance = OpenAIBackend(
                 model_id=model_id,
-                generation_args=generation_args,
+                generation_args=default_generation_args,
                 max_new_tokens=max_new_tokens,
                 verbose=verbose,
                 **extra_kwargs,
