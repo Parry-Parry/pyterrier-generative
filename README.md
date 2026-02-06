@@ -330,6 +330,7 @@ Contributions welcome! Please:
 
 | Version | Date       | Changes                                        |
 |--------:|------------|------------------------------------------------|
+|     0.1.5 | 2026-02-06 | Improve argument parity with other packages |
 |     0.1.4 | 2026-01-30 | Make truncation default, Improve parity with other packages |
 |     0.1.3 | 2025-12-22 | Allow Truncation of Documents |
 |     0.1.2 | 2025-12-17 | Bug Fixes |

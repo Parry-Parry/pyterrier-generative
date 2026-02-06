@@ -1,6 +1,6 @@
 """Top-level package for pyterrier_generative."""
 
-__version__ = '0.1.4'
+__version__ = '0.1.5'
 
 from pyterrier_generative.modelling import (
     GenerativeRanker,
