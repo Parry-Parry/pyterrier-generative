@@ -25,6 +25,7 @@ class _GenerativeRanker(GenerativeRanker, metaclass=Variants):
         prompt: Union[str, callable] = RANKPROMPT,
         system_prompt: str = "",
         algorithm: Algorithm = Algorithm.SLIDING_WINDOW,
+        context_size: int = 4096,
         window_size: int = 20,
         stride: int = 10,
         buffer: int = 20,
@@ -52,6 +53,7 @@ class _GenerativeRanker(GenerativeRanker, metaclass=Variants):
             prompt: Prompt template (Jinja2 string or callable)
             system_prompt: System prompt for the model
             algorithm: Ranking algorithm to use
+            context_size: Model context window in tokens (default 4096)
             window_size: Size of ranking window
             stride: Stride for sliding window
             buffer: Buffer size for tdpart
@@ -105,6 +107,7 @@ class _GenerativeRanker(GenerativeRanker, metaclass=Variants):
                 model_id=model_id,
                 model_args=model_args or {},
                 generation_args=default_generation_args,
+                max_input_length=context_size,
                 max_new_tokens=max_new_tokens,
                 verbose=verbose,
                 **extra_kwargs,
@@ -119,6 +122,7 @@ class _GenerativeRanker(GenerativeRanker, metaclass=Variants):
                 model_id=model_id,
                 model_args=model_args or {},
                 generation_args=default_generation_args,
+                max_input_length=context_size,
                 max_new_tokens=max_new_tokens,
                 device=device,
                 verbose=verbose,
@@ -133,6 +137,7 @@ class _GenerativeRanker(GenerativeRanker, metaclass=Variants):
             backend_instance = OpenAIBackend(
                 model_id=model_id,
                 generation_args=default_generation_args,
+                max_input_length=context_size,
                 max_new_tokens=max_new_tokens,
                 verbose=verbose,
                 **extra_kwargs,

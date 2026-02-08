@@ -6,6 +6,7 @@ import pyterrier_alpha as pta
 from pyterrier_rag.backend import Backend
 from pyterrier_rag.prompt.jinja import jinja_formatter
 import pandas as pd
+from ftfy import fix_text
 
 from pyterrier_generative._algorithms import (
     Algorithm,
@@ -139,14 +140,54 @@ class GenerativeRanker(pt.Transformer):
                     content = self.system_prompt + "\n\n" + content
                 return content
 
-    def parse_output(self, output : str, length : int) -> list[int]:
-        # Extract indices from bracketed format [n] using regex (matches rank_llm behavior)
-        matches = re.findall(r'\[(\d+)\]', output)
+    # Unicode fake number translation table (matches rankLLM behavior)
+    _FAKE_NUMBERS_MAP = str.maketrans(
+        # superscripts ⁰¹²³⁴⁵⁶⁷⁸⁹
+        "\u2070\u00b9\u00b2\u00b3\u2074\u2075\u2076\u2077\u2078\u2079"
+        # subscripts ₀₁₂₃₄₅₆₇₈₉
+        "\u2080\u2081\u2082\u2083\u2084\u2085\u2086\u2087\u2088\u2089"
+        # circled ①②③④⑤⑥⑦⑧⑨
+        "\u2460\u2461\u2462\u2463\u2464\u2465\u2466\u2467\u2468"
+        # dingbat negative circled ❶❷❸❹❺❻❼❽❾
+        "\u2776\u2777\u2778\u2779\u277a\u277b\u277c\u277d\u277e"
+        # fullwidth ０１２３４５６７８９
+        "\uff10\uff11\uff12\uff13\uff14\uff15\uff16\uff17\uff18\uff19",
+        "0123456789"
+        "0123456789"
+        "123456789"
+        "123456789"
+        "0123456789",
+    )
 
-        # Convert to 0-indexed integers
-        indices = [int(x) - 1 for x in matches]
+    @staticmethod
+    def _preprocess_text(text: str) -> str:
+        """Replace [N] with (N) and normalize unicode (matches rankLLM)."""
+        text = re.sub(r'\[(\d+)\]', r'(\1)', text)
+        return fix_text(text)
 
-        # Remove duplicates (keep first occurrence) and filter out-of-range values
+    def _clean_response(self, response: str) -> str:
+        """Clean model response for rank extraction (matches rankLLM)."""
+        if "</think>" in response:
+            response = response.split("</think>")[-1].strip()
+        response = response.translate(self._FAKE_NUMBERS_MAP)
+        cleaned = ""
+        for c in response:
+            if c.isdigit():
+                cleaned += c
+            else:
+                cleaned += " "
+        return cleaned.strip()
+
+    def parse_output(self, output: str, length: int) -> list[int]:
+        cleaned = self._clean_response(output)
+
+        indices = []
+        for x in cleaned.split():
+            try:
+                indices.append(int(x) - 1)
+            except ValueError:
+                continue
+
         seen = set()
         parsed = []
         for idx in indices:
@@ -154,7 +195,6 @@ class GenerativeRanker(pt.Transformer):
                 seen.add(idx)
                 parsed.append(idx)
 
-        # Keep original order for missing passages
         order = parsed + [i for i in range(length) if i not in seen]
         return order
 
@@ -163,6 +203,18 @@ class GenerativeRanker(pt.Transformer):
         if self._token_counter is None:
             self._token_counter = get_token_counter(self.model)
         return self._token_counter
+
+    def _compute_output_token_budget(self, window_size: int) -> int:
+        """Compute expected output tokens for ranking (matches rankLLM)."""
+        try:
+            output_str = " > ".join(
+                f"[{i+1}]" for i in range(window_size)
+            )
+            token_counter = self._get_token_counter()
+            return token_counter.count_tokens(output_str)
+        except (ValueError, Exception):
+            # Fallback: ~5 tokens per rank entry
+            return window_size * 5
 
     def _build_prompt_for_texts(self, doc_texts: list, query: str):
         """
@@ -269,6 +321,12 @@ class GenerativeRanker(pt.Transformer):
                 # No max length available, skip truncation
                 return doc_texts
 
+        # Reserve tokens for model output (matches rankLLM behavior)
+        output_budget = self._compute_output_token_budget(
+            len(doc_texts)
+        )
+        max_length = max_length - output_budget
+
         # Get token counter
         token_counter = self._get_token_counter()
 
@@ -316,22 +374,23 @@ class GenerativeRanker(pt.Transformer):
         doc_texts = kwargs.get('doc_text', [])
         query = kwargs.get('query', '')
 
+        # Preprocess texts (matches rankLLM behavior)
+        doc_texts = [self._preprocess_text(t) for t in doc_texts]
+        query = self._preprocess_text(query)
+
         # Apply truncation if enabled
         doc_texts = self._apply_truncation(doc_texts, query)
 
-        # Build prompt using existing prompt construction logic
-        # The prompt methods expect docs as (index, row) iterator
-        # We create a simple row object that exposes text attribute
         class DocRow:
             def __init__(self, idx, text):
                 self.text = text
                 self._idx = idx
 
-        # Create iterator of (index, DocRow) tuples
-        doc_rows = [(i, DocRow(i, text)) for i, text in enumerate(doc_texts)]
+        doc_rows = [
+            (i, DocRow(i, text))
+            for i, text in enumerate(doc_texts)
+        ]
 
-        # Call appropriate prompt method (string_prompt or callable_prompt)
-        # Pass both docs iterator AND extracted fields for template flexibility
         prompt = self.make_prompt_from(
             docs=doc_rows,
             query=query,
@@ -339,18 +398,19 @@ class GenerativeRanker(pt.Transformer):
             passages=doc_texts
         )
 
-        # Generate using backend
-        # backend.generate() expects list of prompts/messages, returns list of output objects
-        # Each output object must have a .text attribute
-        outputs = self.model.generate([prompt])
+        # Dynamic max_new_tokens based on window size
+        output_budget = self._compute_output_token_budget(
+            len(doc_texts)
+        )
+        try:
+            outputs = self.model.generate(
+                [prompt], max_new_tokens=output_budget
+            )
+        except TypeError:
+            outputs = self.model.generate([prompt])
 
-        # Extract the output text from the output object
-        output_text = outputs[0]
-        text = output_text.text
-
-        # Parse output to get ranking order
+        text = outputs[0].text
         order = self.parse_output(text, len(doc_texts))
-
         return order
 
     def _rank_windows_batch(self, windows_kwargs: list[dict]) -> list[list[int]]:
@@ -373,37 +433,51 @@ class GenerativeRanker(pt.Transformer):
         prompts = []
         truncated_windows = []
 
+        max_window_size = 0
         for kwargs in windows_kwargs:
             doc_texts = kwargs.get('doc_text', [])
             query = kwargs.get('query', '')
 
-            # Apply truncation if enabled
-            doc_texts_truncated = self._apply_truncation(doc_texts, query)
-            truncated_windows.append(doc_texts_truncated)
+            # Preprocess texts (matches rankLLM behavior)
+            doc_texts = [self._preprocess_text(t) for t in doc_texts]
+            query = self._preprocess_text(query)
 
-            # Build prompt using existing prompt construction logic
+            # Apply truncation if enabled
+            doc_texts = self._apply_truncation(doc_texts, query)
+            truncated_windows.append(doc_texts)
+            max_window_size = max(max_window_size, len(doc_texts))
+
             class DocRow:
                 def __init__(self, idx, text):
                     self.text = text
                     self._idx = idx
 
-            doc_rows = [(i, DocRow(i, text)) for i, text in enumerate(doc_texts_truncated)]
+            doc_rows = [
+                (i, DocRow(i, text))
+                for i, text in enumerate(doc_texts)
+            ]
 
             prompt = self.make_prompt_from(
                 docs=doc_rows,
                 query=query,
-                num=len(doc_texts_truncated),
-                passages=doc_texts_truncated
+                num=len(doc_texts),
+                passages=doc_texts
             )
             prompts.append(prompt)
 
-        # Batch generate using backend - this is where efficiency gains come from
-        # Backend returns list of output objects, each with a .text attribute
-        outputs = self.model.generate(prompts)
+        # Dynamic max_new_tokens based on largest window
+        output_budget = self._compute_output_token_budget(
+            max_window_size
+        )
+        try:
+            outputs = self.model.generate(
+                prompts, max_new_tokens=output_budget
+            )
+        except TypeError:
+            outputs = self.model.generate(prompts)
 
         orders = []
         for output_text, doc_texts in zip(outputs, truncated_windows):
-            # Extract text from output object
             text = output_text.text
             order = self.parse_output(text, len(doc_texts))
             orders.append(order)

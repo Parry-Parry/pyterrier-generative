@@ -2,3 +2,4 @@ pyterrier
 pyterrier_rag @ git+https://github.com/terrierteam/pyterrier_rag.git@remove-prompt
 transformers[torch]
 tiktoken
+ftfy
